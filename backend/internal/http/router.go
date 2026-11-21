@@ -20,6 +20,8 @@ type RouterDeps struct {
 	Health *observability.Health
 	Auth   *service.AuthService
 	JWT    *authn.JWT
+
+	APIKeys *service.APIKeyService
 }
 
 // NewRouter builds the api router.
@@ -45,6 +47,14 @@ func NewRouter(d RouterDeps) http.Handler {
 			r.Group(func(r chi.Router) {
 				r.Use(requireUser(d.JWT, logger))
 				r.Get("/me", auth.me)
+
+				keys := &apiKeyHandler{svc: d.APIKeys, logger: logger}
+				r.Route("/api-keys", func(r chi.Router) {
+					r.Use(requireRole(domain.RoleOwner, logger))
+					r.Post("/", keys.create)
+					r.Get("/", keys.list)
+					r.Delete("/{id}", keys.revoke)
+				})
 			})
 		})
 	}

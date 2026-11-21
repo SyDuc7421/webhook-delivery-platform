@@ -42,5 +42,8 @@ func NewAPIHandler(d APIDeps) (http.Handler, error) {
 		Clock:      clock,
 		Logger:     d.Logger,
 	})
-	return apihttp.NewRouter(apihttp.RouterDeps{Logger: d.Logger, Health: d.Health, Auth: auth, JWT: jwt}), nil
+	apiKeys := service.NewAPIKeyService(postgres.NewAPIKeyRepo(d.Pool), clock)
+	return apihttp.NewRouter(apihttp.RouterDeps{
+		Logger: d.Logger, Health: d.Health, Auth: auth, JWT: jwt, APIKeys: apiKeys,
+	}), nil
 }

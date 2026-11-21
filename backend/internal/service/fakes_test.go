@@ -126,3 +126,74 @@ func (f *fakeRefresh) has(h string) bool {
 	_, ok := f.m[h]
 	return ok
 }
+
+type fakeAPIKeys struct {
+	mu     sync.Mutex
+	rows   []domain.APIKey
+	hashes map[string]uuid.UUID // hex of hash → key id
+	calls  int
+}
+
+func newFakeAPIKeys() *fakeAPIKeys { return &fakeAPIKeys{hashes: map[string]uuid.UUID{}} }
+
+func (f *fakeAPIKeys) Create(_ context.Context, k domain.APIKey, hash []byte, _ uuid.UUID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rows = append(f.rows, k)
+	f.hashes[string(hash)] = k.ID
+	return nil
+}
+
+func (f *fakeAPIKeys) List(_ context.Context, orgID uuid.UUID, p domain.Page) ([]domain.APIKey, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []domain.APIKey
+	// newest first
+	for i := len(f.rows) - 1; i >= 0; i-- {
+		k := f.rows[i]
+		if k.OrgID != orgID {
+			continue
+		}
+		if p.After != nil && !isBefore(k, *p.After) {
+			continue
+		}
+		out = append(out, k)
+		if len(out) == p.Limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeAPIKeys) Revoke(_ context.Context, orgID, id uuid.UUID, at time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.rows {
+		if f.rows[i].ID == id && f.rows[i].OrgID == orgID && f.rows[i].RevokedAt == nil {
+			f.rows[i].RevokedAt = &at
+			return nil
+		}
+	}
+	return domain.ErrNotFound
+}
+
+func (f *fakeAPIKeys) GetActiveByHash(_ context.Context, hash []byte) (domain.APIKey, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	id, ok := f.hashes[string(hash)]
+	if !ok {
+		return domain.APIKey{}, domain.ErrNotFound
+	}
+	for _, k := range f.rows {
+		if k.ID == id && k.RevokedAt == nil {
+			return k, nil
+		}
+	}
+	return domain.APIKey{}, domain.ErrNotFound
+}
+
+// isBefore reports whether k sorts strictly after the cursor in (created_at, id) DESC order.
+func isBefore(k domain.APIKey, c domain.Cursor) bool {
+	return k.CreatedAt.Before(c.CreatedAt) || (k.CreatedAt.Equal(c.CreatedAt) && k.ID.String() < c.ID.String())
+}

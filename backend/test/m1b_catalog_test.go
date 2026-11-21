@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,7 +16,10 @@ import (
 
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/domain"
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/platform"
+	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/platform/authn"
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/repository/postgres"
+	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/service"
+	"github.com/SyDuc7421/webhook-delivery-platform/backend/test/apitest"
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/test/testenv"
 )
 
@@ -224,6 +229,119 @@ func TestCatalogRepositories(t *testing.T) {
 			if !newer {
 				t.Fatalf("order broken at %d: %v/%s then %v/%s", i, prev.CreatedAt, prev.ID, cur.CreatedAt, cur.ID)
 			}
+		}
+	})
+}
+
+// registerOwner registers an org through the API and returns its owner's access token and org id.
+func registerOwner(ctx context.Context, t *testing.T, c *apitest.Client, email, orgName string) (token, orgID string) {
+	t.Helper()
+	resp, body := c.Do(ctx, http.MethodPost, "/v1/auth/register", "", map[string]string{
+		"email": email, "password": "correct horse battery", "org_name": orgName,
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("register %s = %d %s", email, resp.StatusCode, body)
+	}
+	s := decode[sessionBody](t, body)
+	return s.Data.AccessToken, s.Data.Org.ID
+}
+
+// memberToken adds a member to the org directly in the database and logs them in.
+func memberToken(ctx context.Context, t *testing.T, c *apitest.Client, pool *pgxpool.Pool, orgID, email string) string {
+	t.Helper()
+	hash, err := authn.HashPassword("correct horse battery")
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	u := domain.User{ID: platform.NewID(), OrgID: uuid.MustParse(orgID), Email: email, PasswordHash: hash, Role: domain.RoleMember}
+	if err := postgres.NewUserRepo(pool).Create(ctx, u); err != nil {
+		t.Fatalf("create member: %v", err)
+	}
+	resp, body := c.Do(ctx, http.MethodPost, "/v1/auth/login", "", map[string]string{"email": email, "password": "correct horse battery"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("member login = %d %s", resp.StatusCode, body)
+	}
+	return decode[sessionBody](t, body).Data.AccessToken
+}
+
+func TestAPIKeysHTTP(t *testing.T) {
+	env := testenv.Start(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	c := apitest.New(t, env)
+	pool, err := postgres.NewPool(ctx, env.Config.Postgres)
+	if err != nil {
+		t.Fatalf("pool: %v", err)
+	}
+	defer pool.Close()
+
+	owner, orgID := registerOwner(ctx, t, c, "owner@acme.io", "Acme")
+	member := memberToken(ctx, t, c, pool, orgID, "member@acme.io")
+
+	resp, body := c.Do(ctx, http.MethodPost, "/v1/api-keys", owner, map[string]string{"name": "ci"})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create = %d %s", resp.StatusCode, body)
+	}
+	created := decode[struct {
+		Data struct {
+			ID     string `json:"id"`
+			Name   string `json:"name"`
+			Prefix string `json:"prefix"`
+			Key    string `json:"key"`
+		} `json:"data"`
+	}](t, body)
+	if !strings.HasPrefix(created.Data.Key, "whk_") || !strings.HasPrefix(created.Data.Key, created.Data.Prefix) || created.Data.Name != "ci" {
+		t.Fatalf("created = %s", body)
+	}
+
+	svc := service.NewAPIKeyService(postgres.NewAPIKeyRepo(pool), platform.SystemClock{})
+	if got, err := svc.Authenticate(ctx, created.Data.Key); err != nil || got.String() != orgID {
+		t.Fatalf("authenticate fresh key = %v, %v", got, err)
+	}
+
+	t.Run("list never exposes the key", func(t *testing.T) {
+		resp, body := c.Do(ctx, http.MethodGet, "/v1/api-keys?limit=10", owner, nil)
+		if resp.StatusCode != http.StatusOK || strings.Contains(string(body), created.Data.Key) || strings.Contains(string(body), `"key"`) {
+			t.Errorf("list = %d %s", resp.StatusCode, body)
+		}
+		if !strings.Contains(string(body), `"has_more":false`) {
+			t.Errorf("meta missing: %s", body)
+		}
+	})
+
+	t.Run("members cannot manage keys", func(t *testing.T) {
+		for _, tc := range []struct{ method, path string }{
+			{http.MethodPost, "/v1/api-keys"}, {http.MethodGet, "/v1/api-keys"}, {http.MethodDelete, "/v1/api-keys/" + created.Data.ID},
+		} {
+			resp, body := c.Do(ctx, tc.method, tc.path, member, map[string]string{"name": "x"})
+			if resp.StatusCode != http.StatusForbidden {
+				t.Errorf("%s %s as member = %d %s, want 403", tc.method, tc.path, resp.StatusCode, body)
+			}
+		}
+	})
+
+	t.Run("validation and pagination errors", func(t *testing.T) {
+		resp, body := c.Do(ctx, http.MethodPost, "/v1/api-keys", owner, map[string]string{"name": ""})
+		if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(body), `"field":"name"`) {
+			t.Errorf("empty name = %d %s", resp.StatusCode, body)
+		}
+		if resp, _ := c.Do(ctx, http.MethodGet, "/v1/api-keys?limit=0", owner, nil); resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("limit=0 = %d, want 400", resp.StatusCode)
+		}
+		if resp, _ := c.Do(ctx, http.MethodGet, "/v1/api-keys?cursor=zzz", owner, nil); resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("bad cursor = %d, want 400", resp.StatusCode)
+		}
+	})
+
+	t.Run("revoke takes effect immediately", func(t *testing.T) {
+		if resp, body := c.Do(ctx, http.MethodDelete, "/v1/api-keys/"+created.Data.ID, owner, nil); resp.StatusCode != http.StatusNoContent {
+			t.Fatalf("revoke = %d %s", resp.StatusCode, body)
+		}
+		if _, err := svc.Authenticate(ctx, created.Data.Key); !errors.Is(err, domain.ErrUnauthorized) {
+			t.Errorf("revoked key err = %v, want ErrUnauthorized (FR-K3)", err)
+		}
+		if resp, _ := c.Do(ctx, http.MethodDelete, "/v1/api-keys/"+created.Data.ID, owner, nil); resp.StatusCode != http.StatusNotFound {
+			t.Errorf("second revoke = %d, want 404", resp.StatusCode)
 		}
 	})
 }
