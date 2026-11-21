@@ -97,3 +97,9 @@ type OutboxRepository interface {
 type RateLimiter interface {
 	Allow(ctx context.Context, orgID uuid.UUID) (allowed bool, retryAfter time.Duration, err error)
 }
+
+// EventPublisher puts accepted events on the events topic. PublishEvents returns only after
+// the broker acknowledged every event, or with an error and nothing assumed delivered.
+type EventPublisher interface {
+	PublishEvents(ctx context.Context, events []Event) error
+}

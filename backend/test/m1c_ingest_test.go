@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -15,11 +17,17 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/twmb/franz-go/pkg/kadm"
+	"github.com/twmb/franz-go/pkg/kgo"
 
+	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/app"
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/cache/redis"
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/domain"
+	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/messaging/kafka"
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/platform"
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/repository/postgres"
+	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/service"
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/test/apitest"
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/test/testenv"
 )
@@ -542,5 +550,245 @@ func TestIngestRateLimit(t *testing.T) {
 	}
 	if ra := resp.Header.Get("Retry-After"); ra == "" || ra == "0" {
 		t.Errorf("Retry-After = %q, want a positive number of seconds (FR-I5)", ra)
+	}
+}
+
+func TestIngestToKafka(t *testing.T) {
+	env := testenv.Start(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+	c := apitest.New(t, env)
+	pool, err := postgres.NewPool(ctx, env.Config.Postgres)
+	if err != nil {
+		t.Fatalf("pool: %v", err)
+	}
+	defer pool.Close()
+
+	owner, orgID := registerOwner(ctx, t, c, "owner@acme.io", "Acme")
+	for path, body := range map[string]any{
+		"/v1/event-types": map[string]any{"name": "payment.paid"}, "/v1/consumers": map[string]any{"uid": "shop_42"},
+	} {
+		if resp, raw := c.Do(ctx, http.MethodPost, path, owner, body); resp.StatusCode != http.StatusCreated {
+			t.Fatalf("POST %s = %d %s", path, resp.StatusCode, raw)
+		}
+	}
+	_, raw := c.Do(ctx, http.MethodPost, "/v1/api-keys", owner, map[string]any{"name": "k"})
+	key := decode[struct {
+		Data struct {
+			Key string `json:"key"`
+		} `json:"data"`
+	}](t, raw).Data.Key
+
+	ingest := func(traceparent string) string {
+		t.Helper()
+		headers := map[string]string{}
+		if traceparent != "" {
+			headers["traceparent"] = traceparent
+		}
+		resp, body := c.DoRaw(ctx, http.MethodPost, "/v1/events", key,
+			strings.NewReader(`{"consumer_uid":"shop_42","type":"payment.paid","payload":{"n":1}}`), headers)
+		if resp.StatusCode != http.StatusAccepted {
+			t.Fatalf("ingest = %d %s", resp.StatusCode, body)
+		}
+		return decode[ingestResp](t, body).Data.ID
+	}
+	outboxRows := func() int {
+		t.Helper()
+		var n int
+		if qerr := pool.QueryRow(ctx, `SELECT count(*) FROM outbox`).Scan(&n); qerr != nil {
+			t.Fatal(qerr)
+		}
+		return n
+	}
+
+	tp := "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+	wantIDs := map[string]bool{ingest(tp): true, ingest(""): true, ingest(""): true}
+	if outboxRows() != 3 {
+		t.Fatalf("outbox rows = %d, want 3 while the relay is stopped", outboxRows())
+	}
+
+	prefix := "t" + strings.ReplaceAll(uuid.NewString()[:8], "-", "") + "."
+	admin, err := kafka.NewClient(env.Config.Kafka)
+	if err != nil {
+		t.Fatalf("admin client: %v", err)
+	}
+	defer admin.Close()
+	if _, cerr := kadm.NewClient(admin).CreateTopics(ctx, 1, 1, nil, kafka.Name(prefix, kafka.TopicEvents)); cerr != nil {
+		t.Fatalf("create topic: %v", cerr)
+	}
+
+	producerClient, err := kafka.NewClient(env.Config.Kafka, kgo.UnknownTopicRetries(0))
+	if err != nil {
+		t.Fatalf("producer client: %v", err)
+	}
+	defer producerClient.Close()
+	newRelay := func(topicPrefix string) *service.Relay {
+		return service.NewRelay(postgres.NewTransactor(pool), postgres.NewOutboxRepo(pool),
+			kafka.NewEventProducer(producerClient, topicPrefix), 100,
+			prometheus.NewGauge(prometheus.GaugeOpts{Name: "test_backlog"}))
+	}
+
+	t.Run("relay moves every outbox row to the events topic", func(t *testing.T) {
+		moved, err := newRelay(prefix).RunOnce(ctx)
+		if err != nil || moved != 3 {
+			t.Fatalf("RunOnce = %d, %v", moved, err)
+		}
+		if n := outboxRows(); n != 0 {
+			t.Errorf("outbox rows after the relay = %d, want 0", n)
+		}
+
+		consumer, err := kafka.NewClient(env.Config.Kafka,
+			kgo.ConsumeTopics(kafka.Name(prefix, kafka.TopicEvents)), kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()))
+		if err != nil {
+			t.Fatalf("consumer: %v", err)
+		}
+		defer consumer.Close()
+		pollCtx, pollCancel := context.WithTimeout(ctx, 40*time.Second)
+		defer pollCancel()
+		var got []*kgo.Record
+		for len(got) < 3 && pollCtx.Err() == nil {
+			fetches := consumer.PollFetches(pollCtx)
+			fetches.EachRecord(func(r *kgo.Record) { got = append(got, r) })
+		}
+		if len(got) != 3 {
+			t.Fatalf("consumed %d records, want 3", len(got))
+		}
+		sawTrace := false
+		for _, r := range got {
+			if string(r.Key) != "shop_42" {
+				t.Errorf("key = %q, want the consumer uid (ordering key)", r.Key)
+			}
+			headers := map[string]string{}
+			for _, h := range r.Headers {
+				headers[h.Key] = string(h.Value)
+			}
+			if headers["schema-version"] != "1" {
+				t.Errorf("headers = %v, want schema-version=1", headers)
+			}
+			if headers["traceparent"] == tp {
+				sawTrace = true
+			}
+			var m map[string]any
+			if err := json.Unmarshal(r.Value, &m); err != nil {
+				t.Fatalf("value is not JSON: %v", err)
+			}
+			if !wantIDs[m["event_id"].(string)] || m["org_id"] != orgID || m["consumer_uid"] != "shop_42" || m["type"] != "payment.paid" || m["accepted_at"] == nil {
+				t.Errorf("value = %s", r.Value)
+			}
+			if _, leaked := m["payload"]; leaked {
+				t.Error("records carry ids, not payloads (docs/MESSAGING.md)")
+			}
+		}
+		if !sawTrace {
+			t.Error("the traceparent given at ingest must reach the record headers (NFR-O1)")
+		}
+	})
+
+	t.Run("a failed publish leaves the rows in the outbox", func(t *testing.T) {
+		ingest("")
+		missing := "m" + strings.ReplaceAll(uuid.NewString()[:8], "-", "") + "." // topic never created
+		moved, err := newRelay(missing).RunOnce(ctx)
+		if err == nil || moved != 0 {
+			t.Fatalf("RunOnce = %d, %v; publishing to a missing topic must fail", moved, err)
+		}
+		if n := outboxRows(); n != 1 {
+			t.Errorf("outbox rows = %d, want 1: nothing may be dropped when Kafka rejects the publish", n)
+		}
+		moved, err = newRelay(prefix).RunOnce(ctx)
+		if err != nil || moved != 1 || outboxRows() != 0 {
+			t.Errorf("retry with a good topic = %d, %v, rows %d; the relay must recover", moved, err, outboxRows())
+		}
+	})
+}
+
+func TestRelayComponentDrainsTheOutbox(t *testing.T) {
+	env := testenv.Start(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+	prefix := "r" + strings.ReplaceAll(uuid.NewString()[:8], "-", "") + "."
+	env.Config.Kafka.TopicPrefix = prefix
+	env.Config.Outbox.BatchSize = 2
+	env.Config.Outbox.PollInterval = 50 * time.Millisecond
+
+	pool, err := postgres.NewPool(ctx, env.Config.Postgres)
+	if err != nil {
+		t.Fatalf("pool: %v", err)
+	}
+	defer pool.Close()
+	orgID, consumerID, typeID := seedCatalog(ctx, t, pool)
+	tx, events, outbox := postgres.NewTransactor(pool), postgres.NewEventRepo(pool), postgres.NewOutboxRepo(pool)
+	for range 5 { // 5 events with batch size 2: the component must drain across several batches
+		e := newEvent(orgID, consumerID, typeID, "")
+		if aerr := tx.WithinTx(ctx, func(ctx context.Context) error {
+			if _, ierr := events.Insert(ctx, e); ierr != nil {
+				return ierr
+			}
+			return outbox.Enqueue(ctx, e.ID)
+		}); aerr != nil {
+			t.Fatalf("accept: %v", aerr)
+		}
+	}
+
+	admin, err := kafka.NewClient(env.Config.Kafka)
+	if err != nil {
+		t.Fatalf("admin: %v", err)
+	}
+	defer admin.Close()
+	if _, cerr := kadm.NewClient(admin).CreateTopics(ctx, 1, 1, nil, kafka.Name(prefix, kafka.TopicEvents)); cerr != nil {
+		t.Fatalf("create topic: %v", cerr)
+	}
+	kc, err := kafka.NewClient(env.Config.Kafka)
+	if err != nil {
+		t.Fatalf("kafka client: %v", err)
+	}
+	defer kc.Close()
+
+	reg := prometheus.NewRegistry()
+	comp, err := app.NewRelayComponent(app.RelayDeps{
+		Config: env.Config, Pool: pool, Kafka: kc, Registry: reg,
+		Logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatalf("relay component: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- comp.Start(ctx) }()
+
+	deadline := time.Now().Add(40 * time.Second)
+	for {
+		n, berr := outbox.Backlog(ctx)
+		if berr != nil {
+			t.Fatal(berr)
+		}
+		if n == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("outbox still has %d rows after 40s", n)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	if serr := comp.Stop(ctx); serr != nil {
+		t.Fatalf("stop: %v", serr)
+	}
+	if derr := <-done; derr != nil {
+		t.Fatalf("start returned %v", derr)
+	}
+	families, err := reg.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range families {
+		if f.GetName() == "webhook_outbox_backlog" {
+			found = true
+			if v := f.GetMetric()[0].GetGauge().GetValue(); v != 0 {
+				t.Errorf("webhook_outbox_backlog = %v, want 0 after draining", v)
+			}
+		}
+	}
+	if !found {
+		t.Error("webhook_outbox_backlog must be registered (NFR-O2)")
 	}
 }
