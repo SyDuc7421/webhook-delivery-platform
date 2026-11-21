@@ -52,6 +52,12 @@ func queries(ctx context.Context, pool *pgxpool.Pool) *db.Queries {
 	return db.New(pool)
 }
 
+// inTx reports whether ctx carries a transaction (queries that take row locks require one).
+func inTx(ctx context.Context) bool {
+	_, ok := ctx.Value(txKey{}).(pgx.Tx)
+	return ok
+}
+
 // mapErr translates driver errors into domain sentinels.
 func mapErr(err error) error {
 	if err == nil {
