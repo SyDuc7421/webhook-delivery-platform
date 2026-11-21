@@ -103,7 +103,7 @@ services:
 
   kafka:
     <<: *common
-    image: "apache/kafka:4.1.0"
+    image: "apache/kafka:4.3.1"
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
@@ -130,7 +130,7 @@ services:
 
   # One-shot: create the topics from docs/architect.md §3 (idempotent).
   kafka-init:
-    image: "apache/kafka:4.1.0"
+    image: "apache/kafka:4.3.1"
     restart: "no"
     networks: [backend]
     depends_on:
