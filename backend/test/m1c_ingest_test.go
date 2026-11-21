@@ -182,6 +182,16 @@ func TestEventAndOutboxRepositories(t *testing.T) {
 		}
 	})
 
+	t.Run("deleting an event type that has events is a conflict, not a 404", func(t *testing.T) {
+		err := postgres.NewEventTypeRepo(pool).Delete(ctx, orgID, typeID)
+		if !errors.Is(err, domain.ErrConflict) {
+			t.Errorf("err = %v, want ErrConflict", err)
+		}
+		if _, gerr := postgres.NewEventTypeRepo(pool).Get(ctx, orgID, typeID); gerr != nil {
+			t.Errorf("the event type must survive: %v", gerr)
+		}
+	})
+
 	t.Run("lock batch outside a transaction is an error", func(t *testing.T) {
 		if _, err := outbox.LockBatch(ctx, 10); err == nil {
 			t.Error("row locks without a transaction are meaningless and must be refused")
