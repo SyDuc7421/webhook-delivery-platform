@@ -20,6 +20,10 @@ type RouterDeps struct {
 	Health *observability.Health
 	Auth   *service.AuthService
 	JWT    *authn.JWT
+
+	APIKeys   *service.APIKeyService
+	Catalog   *service.CatalogService
+	Endpoints *service.EndpointService
 }
 
 // NewRouter builds the api router.
@@ -45,6 +49,41 @@ func NewRouter(d RouterDeps) http.Handler {
 			r.Group(func(r chi.Router) {
 				r.Use(requireUser(d.JWT, logger))
 				r.Get("/me", auth.me)
+
+				types := &eventTypeHandler{svc: d.Catalog, logger: logger}
+				r.Route("/event-types", func(r chi.Router) {
+					r.Post("/", types.create)
+					r.Get("/", types.list)
+					r.Get("/{id}", types.get)
+					r.Patch("/{id}", types.update)
+					r.Delete("/{id}", types.delete)
+				})
+
+				consumers := &consumerHandler{svc: d.Catalog, logger: logger}
+				endpoints := &endpointHandler{svc: d.Endpoints, logger: logger}
+				r.Route("/consumers", func(r chi.Router) {
+					r.Post("/", consumers.create)
+					r.Get("/", consumers.list)
+					r.Get("/{id}", consumers.get)
+					r.Patch("/{id}", consumers.update)
+					r.Delete("/{id}", consumers.delete)
+					r.Post("/{id}/endpoints", endpoints.create)
+					r.Get("/{id}/endpoints", endpoints.listByConsumer)
+				})
+				r.Route("/endpoints", func(r chi.Router) {
+					r.Get("/{id}", endpoints.get)
+					r.Patch("/{id}", endpoints.update)
+					r.Delete("/{id}", endpoints.delete)
+					r.Post("/{id}/rotate-secret", endpoints.rotateSecret)
+				})
+
+				keys := &apiKeyHandler{svc: d.APIKeys, logger: logger}
+				r.Route("/api-keys", func(r chi.Router) {
+					r.Use(requireRole(domain.RoleOwner, logger))
+					r.Post("/", keys.create)
+					r.Get("/", keys.list)
+					r.Delete("/{id}", keys.revoke)
+				})
 			})
 		})
 	}

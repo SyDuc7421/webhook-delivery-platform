@@ -9,8 +9,11 @@ import (
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/service"
 )
 
-// smallBody bounds request bodies for JSON control endpoints (everything except ingest).
+// smallBody bounds request bodies for small JSON control endpoints.
 const smallBody = 64 << 10
+
+// ingestBodyLimit bounds bodies that may carry a 256 KB example payload plus JSON overhead.
+const ingestBodyLimit = 262144 + 16384
 
 type authHandler struct {
 	svc    *service.AuthService

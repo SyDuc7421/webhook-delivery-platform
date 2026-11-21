@@ -24,3 +24,27 @@ func HashOpaqueToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
 }
+
+const apiKeyPrefix = "whk_"
+
+// NewAPIKey returns a random API key ("whk_" + base64url of 32 bytes), its visible prefix and
+// the sha256 hash that is stored instead of the key (FR-K2).
+func NewAPIKey() (full, prefix string, hash []byte, err error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", "", nil, fmt.Errorf("read random api key: %w", err)
+	}
+	full = apiKeyPrefix + base64.RawURLEncoding.EncodeToString(b)
+	return full, full[:12], HashAPIKey(full), nil
+}
+
+// HashAPIKey returns sha256(full key), the lookup value for authentication.
+func HashAPIKey(full string) []byte {
+	sum := sha256.Sum256([]byte(full))
+	return sum[:]
+}
+
+// LooksLikeAPIKey is a cheap shape check so garbage never costs a database lookup.
+func LooksLikeAPIKey(s string) bool {
+	return len(s) == 47 && s[:4] == apiKeyPrefix
+}

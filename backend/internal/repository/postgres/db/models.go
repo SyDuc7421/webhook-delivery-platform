@@ -5,10 +5,54 @@
 package db
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+type ApiKey struct {
+	ID        uuid.UUID
+	OrgID     uuid.UUID
+	Name      string
+	Prefix    string
+	KeyHash   []byte
+	CreatedBy *uuid.UUID
+	CreatedAt time.Time
+	RevokedAt *time.Time
+}
+
+type Consumer struct {
+	ID        uuid.UUID
+	OrgID     uuid.UUID
+	Uid       string
+	Name      string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+type Endpoint struct {
+	ID               uuid.UUID
+	OrgID            uuid.UUID
+	ConsumerID       uuid.UUID
+	Url              string
+	Description      string
+	EventTypes       []string
+	SecretCiphertext []byte
+	Enabled          bool
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
+type EventType struct {
+	ID             uuid.UUID
+	OrgID          uuid.UUID
+	Name           string
+	Description    string
+	ExamplePayload json.RawMessage
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
 
 type Org struct {
 	ID        uuid.UUID

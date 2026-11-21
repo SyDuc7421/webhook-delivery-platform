@@ -59,7 +59,7 @@ func New(t *testing.T, env *testenv.Env) *Client {
 }
 
 // Do sends a JSON request; token, if set, is sent as a Bearer token. body may be nil.
-func (c *Client) Do(method, path, token string, body any) (Response, []byte) {
+func (c *Client) Do(ctx context.Context, method, path, token string, body any) (Response, []byte) {
 	c.t.Helper()
 	var rd io.Reader
 	if body != nil {
@@ -69,13 +69,13 @@ func (c *Client) Do(method, path, token string, body any) (Response, []byte) {
 		}
 		rd = bytes.NewReader(b)
 	}
-	return c.DoRaw(method, path, token, rd, nil)
+	return c.DoRaw(ctx, method, path, token, rd, nil)
 }
 
 // DoRaw sends a raw body with extra headers.
-func (c *Client) DoRaw(method, path, token string, body io.Reader, headers map[string]string) (Response, []byte) {
+func (c *Client) DoRaw(ctx context.Context, method, path, token string, body io.Reader, headers map[string]string) (Response, []byte) {
 	c.t.Helper()
-	req, err := http.NewRequestWithContext(context.Background(), method, c.srv.URL+path, body)
+	req, err := http.NewRequestWithContext(ctx, method, c.srv.URL+path, body)
 	if err != nil {
 		c.t.Fatalf("request: %v", err)
 	}

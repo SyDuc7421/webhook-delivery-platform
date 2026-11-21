@@ -34,3 +34,41 @@ type RefreshStore interface {
 	Consume(ctx context.Context, tokenHash string) (uuid.UUID, error)
 	Delete(ctx context.Context, tokenHash string) error
 }
+
+// APIKeyRepository persists API keys. Every method but GetActiveByHash is scoped by org.
+type APIKeyRepository interface {
+	Create(ctx context.Context, k APIKey, hash []byte, createdBy uuid.UUID) error
+	List(ctx context.Context, orgID uuid.UUID, p Page) ([]APIKey, error)
+	Revoke(ctx context.Context, orgID, id uuid.UUID, at time.Time) error // not found or already revoked → ErrNotFound
+	GetActiveByHash(ctx context.Context, hash []byte) (APIKey, error)    // revoked keys are not found (FR-K3)
+}
+
+// EventTypeRepository persists event types, scoped by org. A row of another org is ErrNotFound.
+type EventTypeRepository interface {
+	Create(ctx context.Context, e EventType) error
+	Get(ctx context.Context, orgID, id uuid.UUID) (EventType, error)
+	GetByNames(ctx context.Context, orgID uuid.UUID, names []string) ([]EventType, error)
+	List(ctx context.Context, orgID uuid.UUID, p Page) ([]EventType, error)
+	Update(ctx context.Context, e EventType) error
+	Delete(ctx context.Context, orgID, id uuid.UUID) error
+}
+
+// ConsumerRepository persists consumers, scoped by org.
+type ConsumerRepository interface {
+	Create(ctx context.Context, c Consumer) error
+	Get(ctx context.Context, orgID, id uuid.UUID) (Consumer, error)
+	GetByUID(ctx context.Context, orgID uuid.UUID, uid string) (Consumer, error)
+	List(ctx context.Context, orgID uuid.UUID, p Page) ([]Consumer, error)
+	Update(ctx context.Context, c Consumer) error
+	Delete(ctx context.Context, orgID, id uuid.UUID) error
+}
+
+// EndpointRepository persists endpoints, scoped by org.
+type EndpointRepository interface {
+	Create(ctx context.Context, e Endpoint) error
+	Get(ctx context.Context, orgID, id uuid.UUID) (Endpoint, error)
+	ListByConsumer(ctx context.Context, orgID, consumerID uuid.UUID, p Page) ([]Endpoint, error)
+	Update(ctx context.Context, e Endpoint) error
+	UpdateSecret(ctx context.Context, orgID, id uuid.UUID, ciphertext []byte) error
+	Delete(ctx context.Context, orgID, id uuid.UUID) error
+}
