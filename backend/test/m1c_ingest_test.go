@@ -390,6 +390,20 @@ func TestIngest(t *testing.T) {
 		}
 	})
 
+	t.Run("a hostile traceparent is ignored, never stored", func(t *testing.T) {
+		for name, tp := range map[string]string{"100 KB": strings.Repeat("a", 100000), "non-utf8": "00-\xff", "garbage": "nope"} {
+			resp, body := send(key, map[string]string{"traceparent": tp}, event(`{"tp":"`+name+`"}`))
+			if resp.StatusCode != http.StatusAccepted {
+				t.Fatalf("%s traceparent = %d %.200s, want 202 (W3C: an invalid traceparent is ignored)", name, resp.StatusCode, body)
+			}
+			var stored *string
+			id := decode[ingestResp](t, body).Data.ID
+			if err := pool.QueryRow(ctx, `SELECT traceparent FROM events WHERE id = $1`, id).Scan(&stored); err != nil || stored != nil {
+				t.Errorf("%s: stored traceparent = %v, err = %v; want NULL", name, stored, err)
+			}
+		}
+	})
+
 	t.Run("authentication", func(t *testing.T) {
 		for name, token := range map[string]string{"no key": "", "garbage": "nope", "unknown key": "whk_" + strings.Repeat("A", 43), "dashboard jwt": owner} {
 			resp, body := send(token, nil, event(`{}`))
@@ -425,6 +439,8 @@ func TestIngest(t *testing.T) {
 			"missing payload":  `{"consumer_uid":"shop_42","type":"payment.paid"}`,
 			"missing type":     `{"consumer_uid":"shop_42","payload":{}}`,
 			"not json":         `hello`,
+			"nul escape":       event(`{"a":"\u0000"}`),
+			"lone surrogate":   event(`{"a":"\ud800"}`),
 			"empty body":       ``,
 		} {
 			resp, raw := send(key, nil, body)

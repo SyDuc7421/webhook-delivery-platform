@@ -40,6 +40,8 @@ func NewRelayComponent(d RelayDeps) (platform.Component, error) {
 
 	batch := d.Config.Outbox.BatchSize
 	drain := func(ctx context.Context) error {
+		// The gauge is refreshed on the way (throttled) and always when the run ends or fails.
+		defer relay.RefreshBacklog(context.WithoutCancel(ctx), true)
 		for ctx.Err() == nil {
 			moved, err := relay.RunOnce(ctx)
 			if err != nil {
@@ -48,6 +50,7 @@ func NewRelayComponent(d RelayDeps) (platform.Component, error) {
 			if moved < batch {
 				return nil // outbox is (nearly) empty; wait for the next tick
 			}
+			relay.RefreshBacklog(ctx, false)
 		}
 		return nil
 	}

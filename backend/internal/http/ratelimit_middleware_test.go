@@ -117,3 +117,26 @@ func TestRateLimitWithoutOrgIsUnauthorized(t *testing.T) {
 		t.Errorf("code = %d, handler called = %v, limiter calls = %d", rec.Code, *called, rl.calls)
 	}
 }
+
+// blockingLimiter models an unreachable Redis: it hangs until its context ends.
+type blockingLimiter struct{}
+
+func (blockingLimiter) Allow(ctx context.Context, _ uuid.UUID) (bool, time.Duration, error) {
+	<-ctx.Done()
+	return false, 0, ctx.Err()
+}
+
+func TestRateLimitHasItsOwnTimeBudget(t *testing.T) {
+	t.Parallel()
+	start := time.Now()
+	rec, counters, called := serveRateLimited(t, blockingLimiter{}, uuid.New(), true)
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Errorf("took %v; an unreachable Redis must cost at most the limiter's time budget, not seconds (NFR-D1)", elapsed)
+	}
+	if rec.Code != http.StatusAccepted || !*called {
+		t.Errorf("code = %d, handler called = %v; the request must fail open", rec.Code, *called)
+	}
+	if got := testutil.ToFloat64(counters.failOpen); got != 1 {
+		t.Errorf("fail-open counter = %v, want 1", got)
+	}
+}

@@ -146,6 +146,7 @@ func TestIngestPayloadValidation(t *testing.T) {
 
 	for name, payload := range map[string]string{
 		"empty": ``, "null": `null`, "array": `[1]`, "string": `"x"`, "number": `1`, "bool": `true`, "malformed": `{bad`,
+		"nul escape": `{"a":"\u0000"}`, "lone surrogate": `{"a":"\ud800"}`, "invalid utf-8": "{\"a\":\"\xff\"}",
 	} {
 		_, err := f.svc.Ingest(context.Background(), f.input(payload))
 		if _, ok := fieldsOf(t, err)["payload"]; !ok {
@@ -155,8 +156,8 @@ func TestIngestPayloadValidation(t *testing.T) {
 	if len(f.events.rows) != 1 {
 		t.Errorf("rejected payloads must not create events, have %d", len(f.events.rows))
 	}
-	if f.count("rejected") != 8 {
-		t.Errorf("rejected counter = %v, want 8", f.count("rejected"))
+	if f.count("rejected") != 11 {
+		t.Errorf("rejected counter = %v, want 11", f.count("rejected"))
 	}
 }
 

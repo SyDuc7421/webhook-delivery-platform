@@ -15,6 +15,10 @@ import (
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/domain"
 )
 
+// rateLimitTimeout is the whole time budget of one limiter call. Redis is loss-tolerant, so a
+// slow or unreachable Redis must cost a request at most this much before failing open.
+const rateLimitTimeout = 100 * time.Millisecond
+
 type orgKey struct{}
 
 // withOrgID stores the org authenticated by an API key.
@@ -39,7 +43,9 @@ func rateLimit(rl domain.RateLimiter, logger *slog.Logger, failOpen, denied prom
 				respondError(w, r, logger, fmt.Errorf("rate limit without an authenticated org: %w", domain.ErrUnauthorized))
 				return
 			}
-			allowed, retryAfter, err := rl.Allow(r.Context(), orgID)
+			limitCtx, cancel := context.WithTimeout(r.Context(), rateLimitTimeout)
+			allowed, retryAfter, err := rl.Allow(limitCtx, orgID)
+			cancel()
 			if err != nil {
 				failOpen.Inc()
 				logger.WarnContext(r.Context(), "rate limit unavailable, failing open", slog.String("error", err.Error()))

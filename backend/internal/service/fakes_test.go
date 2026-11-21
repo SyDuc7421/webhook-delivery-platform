@@ -490,6 +490,8 @@ type fakeOutbox struct {
 	failOn  error
 	deleted []int64
 	batch   []domain.OutboxRecord
+
+	backlogCalls int
 }
 
 func (f *fakeOutbox) Enqueue(_ context.Context, id uuid.UUID) error {
@@ -521,5 +523,6 @@ func (f *fakeOutbox) Delete(_ context.Context, ids []int64) error {
 func (f *fakeOutbox) Backlog(context.Context) (int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.backlogCalls++
 	return int64(len(f.queued)), nil
 }

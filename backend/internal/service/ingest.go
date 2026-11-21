@@ -144,6 +144,11 @@ func (s *IngestService) validateShape(in IngestInput) error {
 	if len(in.Payload) == 0 || !json.Valid(in.Payload) || !strings.HasPrefix(strings.TrimSpace(string(in.Payload)), "{") {
 		ve.Fields = append(ve.Fields, domain.FieldError{Field: "payload", Issue: "must be a JSON object"})
 	}
+	if len(ve.Fields) == 0 {
+		if issue := domain.JSONStorageIssue(in.Payload); issue != "" {
+			ve.Fields = append(ve.Fields, domain.FieldError{Field: "payload", Issue: issue})
+		}
+	}
 	if in.IdempotencyKey != "" && !validIdempotencyKey(in.IdempotencyKey) {
 		ve.Fields = append(ve.Fields, domain.FieldError{Field: "idempotency_key", Issue: "must be 1 to 255 visible ASCII characters"})
 	}

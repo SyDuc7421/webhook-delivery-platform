@@ -66,8 +66,12 @@ func TestRelayPublishesThenDeletes(t *testing.T) {
 	if !slices.Equal(ob.deleted, []int64{1, 2, 3}) {
 		t.Errorf("deleted = %v, want exactly the locked ids", ob.deleted)
 	}
+	if got := testutil.ToFloat64(gauge); got != 0 {
+		t.Errorf("RunOnce must not count the outbox itself (a full count per batch is O(table)), gauge = %v", got)
+	}
+	r.RefreshBacklog(context.Background(), true)
 	if got := testutil.ToFloat64(gauge); got != 3 {
-		t.Errorf("backlog gauge = %v, want the fake's backlog (3)", got)
+		t.Errorf("backlog gauge = %v after RefreshBacklog, want the fake's backlog (3)", got)
 	}
 }
 
@@ -80,6 +84,7 @@ func TestRelayPublishFailureKeepsRows(t *testing.T) {
 	if !errors.Is(err, boom) || moved != 0 {
 		t.Fatalf("RunOnce = %d, %v, want 0 and the publish error", moved, err)
 	}
+	r.RefreshBacklog(context.Background(), true) // the drain loop does this after a failed run
 	if got := testutil.ToFloat64(gauge); got != 3 {
 		t.Errorf("backlog gauge = %v after a failed publish, want 3: a Kafka outage is exactly when the backlog must be visible", got)
 	}
@@ -103,5 +108,21 @@ func TestRelayRespectsBatchSize(t *testing.T) {
 	moved, err := r.RunOnce(context.Background())
 	if err != nil || moved != 10 || len(ob.deleted) != 10 {
 		t.Errorf("RunOnce = %d, %v; deleted=%d, want one batch of 10", moved, err, len(ob.deleted))
+	}
+}
+
+func TestRefreshBacklogIsThrottledUnlessForced(t *testing.T) {
+	t.Parallel()
+	r, ob, _, _ := newRelay(t, records(2), nil)
+	ctx := context.Background()
+	for range 10 {
+		r.RefreshBacklog(ctx, false)
+	}
+	if ob.backlogCalls != 1 {
+		t.Errorf("10 throttled refreshes counted the outbox %d times, want 1", ob.backlogCalls)
+	}
+	r.RefreshBacklog(ctx, true)
+	if ob.backlogCalls != 2 {
+		t.Errorf("a forced refresh must always count, got %d calls", ob.backlogCalls)
 	}
 }

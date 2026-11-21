@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -13,6 +14,10 @@ import (
 // publishTimeout bounds one Kafka publish, and so how long the relay holds its row locks.
 const publishTimeout = 15 * time.Second
 
+// backlogRefreshEvery throttles the outbox count: SELECT count(*) is O(table), so it must not
+// run per batch while draining a large backlog.
+const backlogRefreshEvery = 5 * time.Second
+
 // Relay moves outbox rows to Kafka (ADR-0002). Several relays can run side by side because
 // each locks its own batch with FOR UPDATE SKIP LOCKED.
 type Relay struct {
@@ -21,6 +26,9 @@ type Relay struct {
 	pub     domain.EventPublisher
 	batch   int
 	backlog prometheus.Gauge
+
+	mu          sync.Mutex
+	lastRefresh time.Time
 }
 
 // NewRelay returns a Relay that moves up to batch rows per RunOnce. backlog is set to the
@@ -60,13 +68,24 @@ func (r *Relay) RunOnce(ctx context.Context) (int, error) {
 		moved = len(ids)
 		return nil
 	})
-	// Best effort, on failure too: a Kafka outage is exactly when the backlog must be visible,
-	// and a failed count must never fail a run.
-	if n, cerr := r.outbox.Backlog(ctx); cerr == nil {
-		r.backlog.Set(float64(n))
-	}
 	if err != nil {
 		return 0, err
 	}
 	return moved, nil
+}
+
+// RefreshBacklog sets the backlog gauge from the outbox row count. Unless force is set it
+// counts at most once per backlogRefreshEvery. Call it with force when a run ends or fails: a
+// Kafka outage is exactly when the backlog must be visible. A failed count is ignored.
+func (r *Relay) RefreshBacklog(ctx context.Context, force bool) {
+	r.mu.Lock()
+	if !force && !r.lastRefresh.IsZero() && time.Since(r.lastRefresh) < backlogRefreshEvery {
+		r.mu.Unlock()
+		return
+	}
+	r.lastRefresh = time.Now()
+	r.mu.Unlock()
+	if n, err := r.outbox.Backlog(ctx); err == nil {
+		r.backlog.Set(float64(n))
+	}
 }
