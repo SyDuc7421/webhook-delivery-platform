@@ -3,6 +3,7 @@
 package app
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/observability"
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/platform"
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/platform/authn"
+	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/platform/secretbox"
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/repository/postgres"
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/service"
 )
@@ -43,8 +45,14 @@ func NewAPIHandler(d APIDeps) (http.Handler, error) {
 		Logger:     d.Logger,
 	})
 	apiKeys := service.NewAPIKeyService(postgres.NewAPIKeyRepo(d.Pool), clock)
+	box, err := secretbox.New(d.Config.Secrets.EncryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("secret box: %w", err)
+	}
+	endpoints := service.NewEndpointService(
+		postgres.NewEndpointRepo(d.Pool), postgres.NewConsumerRepo(d.Pool), postgres.NewEventTypeRepo(d.Pool), box, clock)
 	catalog := service.NewCatalogService(postgres.NewEventTypeRepo(d.Pool), postgres.NewConsumerRepo(d.Pool), clock)
 	return apihttp.NewRouter(apihttp.RouterDeps{
-		Logger: d.Logger, Health: d.Health, Auth: auth, JWT: jwt, APIKeys: apiKeys, Catalog: catalog,
+		Logger: d.Logger, Health: d.Health, Auth: auth, JWT: jwt, APIKeys: apiKeys, Catalog: catalog, Endpoints: endpoints,
 	}), nil
 }

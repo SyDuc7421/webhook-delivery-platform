@@ -370,3 +370,84 @@ func (f *fakeConsumers) Delete(_ context.Context, orgID, id uuid.UUID) error {
 	}
 	return domain.ErrNotFound
 }
+
+type fakeEndpoints struct {
+	mu   sync.Mutex
+	rows []domain.Endpoint
+}
+
+func newFakeEndpoints() *fakeEndpoints { return &fakeEndpoints{} }
+
+func (f *fakeEndpoints) Create(_ context.Context, e domain.Endpoint) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rows = append(f.rows, e)
+	return nil
+}
+
+func (f *fakeEndpoints) Get(_ context.Context, orgID, id uuid.UUID) (domain.Endpoint, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, r := range f.rows {
+		if r.OrgID == orgID && r.ID == id {
+			return r, nil
+		}
+	}
+	return domain.Endpoint{}, domain.ErrNotFound
+}
+
+func (f *fakeEndpoints) ListByConsumer(_ context.Context, orgID, consumerID uuid.UUID, p domain.Page) ([]domain.Endpoint, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []domain.Endpoint
+	for i := len(f.rows) - 1; i >= 0; i-- {
+		r := f.rows[i]
+		if r.OrgID != orgID || r.ConsumerID != consumerID {
+			continue
+		}
+		if p.After != nil && !sortsAfter(r.CreatedAt, r.ID, *p.After) {
+			continue
+		}
+		out = append(out, r)
+		if len(out) == p.Limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeEndpoints) Update(_ context.Context, e domain.Endpoint) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i, r := range f.rows {
+		if r.OrgID == e.OrgID && r.ID == e.ID {
+			f.rows[i].URL, f.rows[i].Description, f.rows[i].EventTypes, f.rows[i].Enabled = e.URL, e.Description, e.EventTypes, e.Enabled
+			return nil
+		}
+	}
+	return domain.ErrNotFound
+}
+
+func (f *fakeEndpoints) UpdateSecret(_ context.Context, orgID, id uuid.UUID, ct []byte) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i, r := range f.rows {
+		if r.OrgID == orgID && r.ID == id {
+			f.rows[i].SecretCiphertext = ct
+			return nil
+		}
+	}
+	return domain.ErrNotFound
+}
+
+func (f *fakeEndpoints) Delete(_ context.Context, orgID, id uuid.UUID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i, r := range f.rows {
+		if r.OrgID == orgID && r.ID == id {
+			f.rows = append(f.rows[:i], f.rows[i+1:]...)
+			return nil
+		}
+	}
+	return domain.ErrNotFound
+}

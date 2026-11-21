@@ -3,6 +3,7 @@
 package test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -466,4 +467,214 @@ func TestEventTypesHTTP(t *testing.T) {
 			t.Errorf("get after delete = %d, want 404", resp.StatusCode)
 		}
 	})
+}
+
+func TestConsumersAndEndpointsHTTP(t *testing.T) {
+	env := testenv.Start(t)
+	ctx := t.Context()
+	c := apitest.New(t, env)
+	token, _ := registerOwner(ctx, t, c, "owner@acme.io", "Acme")
+
+	if resp, body := c.Do(ctx, http.MethodPost, "/v1/event-types", token, map[string]any{"name": "payment.paid"}); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("event type = %d %s", resp.StatusCode, body)
+	}
+	resp, body := c.Do(ctx, http.MethodPost, "/v1/consumers", token, map[string]any{"uid": "shop_42", "name": "Shop 42"})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create consumer = %d %s", resp.StatusCode, body)
+	}
+	consumer := decode[itemResp](t, body).Data
+	consumerID, _ := consumer["id"].(string)
+	if consumer["uid"] != "shop_42" || resp.Header.Get("Location") != "/v1/consumers/"+consumerID {
+		t.Fatalf("consumer = %v", consumer)
+	}
+
+	t.Run("consumer uid is unique and immutable", func(t *testing.T) {
+		dup, dupBody := c.Do(ctx, http.MethodPost, "/v1/consumers", token, map[string]any{"uid": "shop_42"})
+		if dup.StatusCode != http.StatusConflict {
+			t.Errorf("duplicate uid = %d %s, want 409", dup.StatusCode, dupBody)
+		}
+		if r, _ := c.Do(ctx, http.MethodPatch, "/v1/consumers/"+consumerID, token, map[string]any{"uid": "x"}); r.StatusCode != http.StatusBadRequest {
+			t.Errorf("patch uid = %d, want 400", r.StatusCode)
+		}
+		renamed, renamedBody := c.Do(ctx, http.MethodPatch, "/v1/consumers/"+consumerID, token, map[string]any{"name": "Renamed"})
+		if renamed.StatusCode != http.StatusOK || decode[itemResp](t, renamedBody).Data["name"] != "Renamed" {
+			t.Errorf("patch name = %d %s", renamed.StatusCode, renamedBody)
+		}
+	})
+
+	path := "/v1/consumers/" + consumerID + "/endpoints"
+	resp, body = c.Do(ctx, http.MethodPost, path, token, map[string]any{
+		"url": "https://example.com/hooks", "description": "main", "event_types": []string{"payment.paid"},
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create endpoint = %d %s", resp.StatusCode, body)
+	}
+	ep := decode[itemResp](t, body).Data
+	epID, _ := ep["id"].(string)
+	secret, _ := ep["secret"].(string)
+	if !strings.HasPrefix(secret, "whsec_") || ep["enabled"] != true || ep["consumer_id"] != consumerID {
+		t.Fatalf("endpoint = %v", ep)
+	}
+
+	t.Run("secret is shown on create and rotate only", func(t *testing.T) {
+		resp, body := c.Do(ctx, http.MethodGet, "/v1/endpoints/"+epID, token, nil)
+		if resp.StatusCode != http.StatusOK || strings.Contains(string(body), "secret") || strings.Contains(string(body), secret) {
+			t.Errorf("get leaks the secret: %d %s", resp.StatusCode, body)
+		}
+		_, body = c.Do(ctx, http.MethodGet, path, token, nil)
+		if strings.Contains(string(body), "secret") || strings.Contains(string(body), secret) {
+			t.Errorf("list leaks the secret: %s", body)
+		}
+		resp, body = c.Do(ctx, http.MethodPost, "/v1/endpoints/"+epID+"/rotate-secret", token, nil)
+		rotated, _ := decode[itemResp](t, body).Data["secret"].(string)
+		if resp.StatusCode != http.StatusOK || !strings.HasPrefix(rotated, "whsec_") || rotated == secret {
+			t.Errorf("rotate = %d %s", resp.StatusCode, body)
+		}
+	})
+
+	t.Run("validation", func(t *testing.T) {
+		cases := map[string]struct {
+			req  map[string]any
+			code int
+			want string
+		}{
+			"ftp url":            {map[string]any{"url": "ftp://x.io"}, http.StatusBadRequest, `"field":"url"`},
+			"missing url":        {map[string]any{"description": "x"}, http.StatusBadRequest, `"field":"url"`},
+			"unknown event type": {map[string]any{"url": "https://x.io", "event_types": []string{"nope"}}, http.StatusUnprocessableEntity, "nope"},
+			"unknown field":      {map[string]any{"url": "https://x.io", "secret": "mine"}, http.StatusBadRequest, "VALIDATION_FAILED"},
+		}
+		for name, tc := range cases {
+			resp, body := c.Do(ctx, http.MethodPost, path, token, tc.req)
+			if resp.StatusCode != tc.code || !strings.Contains(string(body), tc.want) {
+				t.Errorf("%s = %d %s, want %d containing %s", name, resp.StatusCode, body, tc.code, tc.want)
+			}
+		}
+	})
+
+	t.Run("disable, update and delete", func(t *testing.T) {
+		resp, body := c.Do(ctx, http.MethodPatch, "/v1/endpoints/"+epID, token, map[string]any{"enabled": false})
+		got := decode[itemResp](t, body).Data
+		if resp.StatusCode != http.StatusOK || got["enabled"] != false || got["url"] != "https://example.com/hooks" {
+			t.Errorf("disable = %d %s", resp.StatusCode, body)
+		}
+		_, body = c.Do(ctx, http.MethodGet, "/v1/endpoints/"+epID, token, nil)
+		if decode[itemResp](t, body).Data["enabled"] != false {
+			t.Errorf("disabled flag must persist: %s", body)
+		}
+		resp, body = c.Do(ctx, http.MethodPatch, "/v1/endpoints/"+epID, token, map[string]any{"event_types": []string{}})
+		if resp.StatusCode != http.StatusOK || strings.Contains(string(body), "payment.paid") {
+			t.Errorf("clearing subscriptions = %d %s", resp.StatusCode, body)
+		}
+		if resp, _ := c.Do(ctx, http.MethodDelete, "/v1/endpoints/"+epID, token, nil); resp.StatusCode != http.StatusNoContent {
+			t.Errorf("delete = %d", resp.StatusCode)
+		}
+		if resp, _ := c.Do(ctx, http.MethodGet, "/v1/endpoints/"+epID, token, nil); resp.StatusCode != http.StatusNotFound {
+			t.Errorf("get deleted = %d, want 404", resp.StatusCode)
+		}
+	})
+
+	t.Run("deleting a consumer removes its endpoints", func(t *testing.T) {
+		resp, body := c.Do(ctx, http.MethodPost, path, token, map[string]any{"url": "https://example.com/other"})
+		other, _ := decode[itemResp](t, body).Data["id"].(string)
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("create = %d %s", resp.StatusCode, body)
+		}
+		if resp, _ := c.Do(ctx, http.MethodDelete, "/v1/consumers/"+consumerID, token, nil); resp.StatusCode != http.StatusNoContent {
+			t.Fatalf("delete consumer = %d", resp.StatusCode)
+		}
+		if resp, _ := c.Do(ctx, http.MethodGet, "/v1/endpoints/"+other, token, nil); resp.StatusCode != http.StatusNotFound {
+			t.Errorf("endpoint after consumer delete = %d, want 404", resp.StatusCode)
+		}
+		if resp, _ := c.Do(ctx, http.MethodGet, path, token, nil); resp.StatusCode != http.StatusNotFound {
+			t.Errorf("list endpoints of deleted consumer = %d, want 404", resp.StatusCode)
+		}
+	})
+}
+
+// TestCrossOrgIsolation proves FR-A3: org B can never read or change org A's data by id,
+// and org A's rows are unchanged afterwards.
+func TestCrossOrgIsolation(t *testing.T) {
+	env := testenv.Start(t)
+	ctx := t.Context()
+	c := apitest.New(t, env)
+	pool, err := postgres.NewPool(ctx, env.Config.Postgres)
+	if err != nil {
+		t.Fatalf("pool: %v", err)
+	}
+	defer pool.Close()
+	tokenA, _ := registerOwner(ctx, t, c, "a@a.io", "A")
+	tokenB, _ := registerOwner(ctx, t, c, "b@b.io", "B")
+
+	create := func(path string, body any) string {
+		resp, raw := c.Do(ctx, http.MethodPost, path, tokenA, body)
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("POST %s = %d %s", path, resp.StatusCode, raw)
+		}
+		id, _ := decode[itemResp](t, raw).Data["id"].(string)
+		return id
+	}
+	keyID := create("/v1/api-keys", map[string]any{"name": "k"})
+	typeID := create("/v1/event-types", map[string]any{"name": "order.created"})
+	consumerID := create("/v1/consumers", map[string]any{"uid": "c1", "name": "C1"})
+	endpointID := create("/v1/consumers/"+consumerID+"/endpoints", map[string]any{"url": "https://a.example.com/hook"})
+
+	var secretBefore []byte
+	if err := pool.QueryRow(ctx, `SELECT secret_ciphertext FROM endpoints WHERE id = $1`, endpointID).Scan(&secretBefore); err != nil {
+		t.Fatalf("read secret: %v", err)
+	}
+
+	attacks := []struct {
+		method, path string
+		body         any
+	}{
+		{http.MethodDelete, "/v1/api-keys/" + keyID, nil},
+		{http.MethodGet, "/v1/event-types/" + typeID, nil},
+		{http.MethodPatch, "/v1/event-types/" + typeID, map[string]any{"description": "hijacked"}},
+		{http.MethodDelete, "/v1/event-types/" + typeID, nil},
+		{http.MethodGet, "/v1/consumers/" + consumerID, nil},
+		{http.MethodPatch, "/v1/consumers/" + consumerID, map[string]any{"name": "hijacked"}},
+		{http.MethodDelete, "/v1/consumers/" + consumerID, nil},
+		{http.MethodGet, "/v1/consumers/" + consumerID + "/endpoints", nil},
+		{http.MethodPost, "/v1/consumers/" + consumerID + "/endpoints", map[string]any{"url": "https://evil.example.com/hook"}},
+		{http.MethodGet, "/v1/endpoints/" + endpointID, nil},
+		{http.MethodPatch, "/v1/endpoints/" + endpointID, map[string]any{"enabled": false, "url": "https://evil.example.com/hook"}},
+		{http.MethodPost, "/v1/endpoints/" + endpointID + "/rotate-secret", nil},
+		{http.MethodDelete, "/v1/endpoints/" + endpointID, nil},
+	}
+	for _, a := range attacks {
+		resp, body := c.Do(ctx, a.method, a.path, tokenB, a.body)
+		if resp.StatusCode != http.StatusNotFound {
+			t.Errorf("org B %s %s = %d %s, want 404", a.method, a.path, resp.StatusCode, body)
+		}
+	}
+
+	// Org B's own lists must not contain org A's rows.
+	for _, path := range []string{"/v1/event-types", "/v1/consumers", "/v1/api-keys"} {
+		_, body := c.Do(ctx, http.MethodGet, path, tokenB, nil)
+		if got := decode[listResp](t, body); len(got.Data) != 0 {
+			t.Errorf("org B GET %s sees %d rows of org A", path, len(got.Data))
+		}
+	}
+
+	// Nothing of org A changed.
+	var (
+		desc, url string
+		enabled   bool
+		secret    []byte
+		revoked   *time.Time
+		consumers int
+	)
+	if err := pool.QueryRow(ctx, `SELECT description FROM event_types WHERE id = $1`, typeID).Scan(&desc); err != nil || desc != "" {
+		t.Errorf("event type after attacks: desc=%q err=%v", desc, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT url, enabled, secret_ciphertext FROM endpoints WHERE id = $1`, endpointID).Scan(&url, &enabled, &secret); err != nil ||
+		url != "https://a.example.com/hook" || !enabled || !bytes.Equal(secret, secretBefore) {
+		t.Errorf("endpoint after attacks: url=%q enabled=%v secretChanged=%v err=%v", url, enabled, !bytes.Equal(secret, secretBefore), err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT revoked_at FROM api_keys WHERE id = $1`, keyID).Scan(&revoked); err != nil || revoked != nil {
+		t.Errorf("api key after attacks: revoked=%v err=%v", revoked, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM consumers WHERE id = $1 AND name = 'C1'`, consumerID).Scan(&consumers); err != nil || consumers != 1 {
+		t.Errorf("consumer after attacks: count=%d err=%v", consumers, err)
+	}
 }

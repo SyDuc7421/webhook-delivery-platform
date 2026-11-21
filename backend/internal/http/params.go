@@ -11,11 +11,11 @@ import (
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/domain"
 )
 
-// idParam reads a UUID path parameter. A malformed id cannot exist, so it is a 404.
-func idParam(r *http.Request, name string) (uuid.UUID, error) {
-	id, err := uuid.Parse(chi.URLParam(r, name))
+// idParam reads the {id} path parameter as a UUID. A malformed id cannot exist, so it is a 404.
+func idParam(r *http.Request) (uuid.UUID, error) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
-		return uuid.Nil, fmt.Errorf("path parameter %s: %w", name, domain.ErrNotFound)
+		return uuid.Nil, fmt.Errorf("path parameter id: %w", domain.ErrNotFound)
 	}
 	return id, nil
 }

@@ -5,9 +5,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
-
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/domain"
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/service"
 )
@@ -75,9 +72,9 @@ func (h *apiKeyHandler) list(w http.ResponseWriter, r *http.Request) {
 
 func (h *apiKeyHandler) revoke(w http.ResponseWriter, r *http.Request) {
 	p, _ := PrincipalFrom(r.Context())
-	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	id, err := idParam(r)
 	if err != nil {
-		respondError(w, r, h.logger, domain.ErrNotFound) // a malformed id cannot exist
+		respondError(w, r, h.logger, err)
 		return
 	}
 	if err := h.svc.Revoke(r.Context(), p.OrgID, id); err != nil {

@@ -68,7 +68,7 @@ func (h *eventTypeHandler) create(w http.ResponseWriter, r *http.Request) {
 
 func (h *eventTypeHandler) get(w http.ResponseWriter, r *http.Request) {
 	p, _ := PrincipalFrom(r.Context())
-	id, err := idParam(r, "id")
+	id, err := idParam(r)
 	if err != nil {
 		respondError(w, r, h.logger, err)
 		return
@@ -102,7 +102,7 @@ func (h *eventTypeHandler) list(w http.ResponseWriter, r *http.Request) {
 
 func (h *eventTypeHandler) update(w http.ResponseWriter, r *http.Request) {
 	p, _ := PrincipalFrom(r.Context())
-	id, err := idParam(r, "id")
+	id, err := idParam(r)
 	if err != nil {
 		respondError(w, r, h.logger, err)
 		return
@@ -130,7 +130,7 @@ func (h *eventTypeHandler) update(w http.ResponseWriter, r *http.Request) {
 
 func (h *eventTypeHandler) delete(w http.ResponseWriter, r *http.Request) {
 	p, _ := PrincipalFrom(r.Context())
-	id, err := idParam(r, "id")
+	id, err := idParam(r)
 	if err != nil {
 		respondError(w, r, h.logger, err)
 		return
