@@ -119,5 +119,5 @@ create and rotate responses, never by GET.
 
 ## Documentation
 
-OpenAPI lives at `docs/openapi.yaml` (generated or hand-written — decide in M1, then keep one
-source). A PR that changes a contract without updating it fails review.
+OpenAPI lives at [`docs/openapi.yaml`](openapi.yaml) and is **hand-written** (decided in M1): it is the
+single source for the contract. A PR that changes a contract without updating it fails review.
