@@ -6,11 +6,11 @@ This file is the entry point. The design itself lives in the project docs:
 
 | Document | Answers |
 |---|---|
-| [spec.md](../../spec.md) | What the system must do (FR/NFR with IDs and milestones) |
-| [architect.md](../../architect.md) | How it works: processes, Kafka topics, Postgres design, security, observability |
-| [deploy.md](../../deploy.md) | Local compose, AWS (Terraform, Free plan), CI/CD |
+| [SPEC.md](../../SPEC.md) | What the system must do (FR/NFR with IDs and milestones) |
+| [ARCHITECT.md](../../ARCHITECT.md) | How it works: processes, Kafka topics, Postgres design, security, observability |
+| [DEPLOY.md](../../DEPLOY.md) | Local compose, AWS (Terraform, Free plan), CI/CD |
 | [TESTING.md](../../TESTING.md) | Test levels and what each proves |
-| [roadmap.md](../../roadmap.md) | Milestones, estimates, stretch backlog |
+| [ROADMAP.md](../../ROADMAP.md) | Milestones, estimates, stretch backlog |
 | [adr/](../../adr/) | Decisions and the options rejected |
 
 ## Why this project exists
@@ -73,6 +73,7 @@ Open item for M6: custom domain for HTTPS on the ALB, or demo over the ALB's HTT
 
 ## Left to the builder
 
-~~Package layout inside `/backend`~~ (see `AGENTS.md` §4), binary-per-role vs role flag, Kafka client library (franz-go
+~~Package layout inside `/backend`~~ (see `AGENTS.md` §4), ~~binary-per-role vs role flag~~
+(binary per process, M0), Kafka client library (franz-go
 suggested), Postgres driver (pgx), partition-retention mechanism, exact retry delays and timeouts,
 Terraform module internals, Grafana dashboard layout, shadcn components.

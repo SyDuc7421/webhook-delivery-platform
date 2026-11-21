@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GOLANGCI_VERSION: "v2.5.0"
+  GOLANGCI_VERSION: "v2.15.0"
 
 jobs:
   # Path filters (ADR-0006): a web-only change does not run the Go jobs, and the reverse.
@@ -21,8 +21,8 @@ jobs:
       web: ${{ steps.filter.outputs.web }}
       infra: ${{ steps.filter.outputs.infra }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
@@ -39,12 +39,13 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0 }
-      - uses: actions/setup-node@v4
-        with: { node-version: "22", cache: npm }
-      - run: npm ci
-      - run: npx commitlint --from=${{ github.event.pull_request.base.sha }} --to=${{ github.sha }} --verbose
+      - uses: pnpm/action-setup@v6   # version from package.json "packageManager"
+      - uses: actions/setup-node@v7
+        with: { node-version: "24", cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec commitlint --from=${{ github.event.pull_request.base.sha }} --to=${{ github.sha }} --verbose
 
   lint:
     needs: changes
@@ -52,10 +53,10 @@ jobs:
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: backend } }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with: { go-version-file: backend/go.mod, cache-dependency-path: backend/go.sum }
-      - uses: golangci/golangci-lint-action@v8
+      - uses: golangci/golangci-lint-action@v9
         with: { version: "${{ env.GOLANGCI_VERSION }}", working-directory: backend, args: --timeout=5m }
       - name: go mod tidy is clean
         run: go mod tidy && git diff --exit-code go.mod go.sum
@@ -66,8 +67,8 @@ jobs:
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: backend } }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with: { go-version-file: backend/go.mod, cache-dependency-path: backend/go.sum }
       - run: go test -race -shuffle=on -covermode=atomic -coverprofile=coverage.out ./...
       - name: coverage gate
@@ -75,7 +76,7 @@ jobs:
           total=$(go tool cover -func=coverage.out | tail -1 | awk '{print substr($3, 1, length($3)-1)}')
           echo "total coverage: $total%"
           awk -v t="$total" 'BEGIN{ if (t+0 < 60) { print "coverage below 60%"; exit 1 } }'
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with: { name: coverage, path: backend/coverage.out }
 
   # testcontainers starts Postgres, Kafka and Redis itself (Docker is available on ubuntu runners).
@@ -85,8 +86,8 @@ jobs:
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: backend } }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with: { go-version-file: backend/go.mod, cache-dependency-path: backend/go.sum }
       - run: go test -race -count=1 -tags=integration ./test/...
 
@@ -95,13 +96,13 @@ jobs:
     if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0 }
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with: { go-version-file: backend/go.mod, cache-dependency-path: backend/go.sum }
       - run: go install golang.org/x/vuln/cmd/govulncheck@latest && govulncheck ./...
         working-directory: backend
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: gitleaks/gitleaks-action@v3
         env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
 
   build:
@@ -111,9 +112,9 @@ jobs:
       matrix:
         app: [api, relay, dispatcher, delivery-worker, retry-worker]
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v6
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
         with:
           context: backend
           target: runtime
@@ -123,14 +124,14 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.app }}
           tags: "webhook-platform-${{ matrix.app }}:${{ github.sha }}"
           load: true
-      - uses: aquasecurity/trivy-action@0.29.0
+      - uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: "webhook-platform-${{ matrix.app }}:${{ github.sha }}"
           severity: CRITICAL,HIGH
           exit-code: "1"
           ignore-unfixed: true
 
-  # Added in later milestones (see docs/deploy.md §3):
+  # Added in later milestones (see docs/DEPLOY.md §3):
   #   web   (needs.changes.outputs.web)   — typecheck, lint, Vitest, build       (M4)
   #   e2e   — Playwright against deploy/docker-compose.yml                       (M5)
   #   infra (needs.changes.outputs.infra) — terraform fmt -check, validate, tflint (M6)

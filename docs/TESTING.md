@@ -7,7 +7,7 @@ What is tested at each level, what each level proves, and the rules every Go tes
 | Level | Tooling | Covers |
 | --- | --- | --- |
 | Go unit | `go test` | signing, retry schedule, SSRF guard, idempotency rules, pagination cursors |
-| Go integration | testcontainers (Postgres, Kafka, Redis), `//go:build integration` | repositories, outbox relay, dispatcher fan-out, worker offset handling |
+| Go integration | testcontainers (Postgres, Kafka, Redis) via `backend/test/testenv`, `//go:build integration` | migrations up/down, adapters, repositories, outbox relay, dispatcher fan-out, worker offset handling |
 | Failure | testcontainers + process kill | NFR-R1: kill the delivery worker mid-batch; every event still reaches the receiver at least once |
 | Degraded mode | testcontainers, stop Redis mid-test | NFR-D1: ingest and delivery continue without Redis |
 | Cache correctness | Go integration | NFR-P3: a revoked key and a disabled endpoint take effect on the next request |
@@ -17,6 +17,9 @@ What is tested at each level, what each level proves, and the rules every Go tes
 
 Coverage target: ≥80% on `service/` and `domain/`, ≥60% overall (CI gate). Coverage is a smell
 detector, not a goal — a covered line with no assertion is worthless.
+
+Kafka in integration tests is `confluentinc/confluent-local:8.4.1` (Kafka 4.x) (the testcontainers Kafka module only
+drives Confluent images); compose and AWS run `apache/kafka`. Both speak the same client protocol.
 
 ## Go rules
 
@@ -63,7 +66,7 @@ graceful shutdown finishes or hands back in-flight work.
 ## CI gates
 
 Every pull request runs Go unit + integration tests with `-race`, web unit tests and Playwright e2e.
-See [deploy.md](deploy.md#3-cicd-github-actions).
+See [DEPLOY.md](DEPLOY.md#3-cicd-github-actions).
 
 ## Load test results
 

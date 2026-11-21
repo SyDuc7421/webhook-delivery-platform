@@ -2,12 +2,12 @@
 
 ## 1. Prerequisites
 
-Go 1.26 · Docker + Compose v2 · Node 22 (hooks; later `/web`) · Python 3.11+ (pre-commit) ·
+Go 1.27 · Docker + Compose v2 · Node 24 + pnpm 10 (hooks; later `/web`) · Python 3.11+ (pre-commit) ·
 `make`. Later milestones: k6 (M5), Terraform (M6).
 
 ```bash
 git clone git@github.com:SyDuc7421/webhook-delivery-platform.git && cd webhook-delivery-platform
-make setup     # installs Go tools, npm hooks, pre-commit, copies .env.example -> .env
+make setup     # installs Go tools, pnpm hook deps, pre-commit, copies .env.example -> .env
 make up        # starts postgres, kafka (+ topics), redis, grafana, loki, tempo, prometheus, alloy
 make migrate-up
 make run

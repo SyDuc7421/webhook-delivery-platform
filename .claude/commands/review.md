@@ -24,7 +24,7 @@ signing secret, token, or payload in logs/traces; outbound HTTP only via `intern
 labels.
 **Tests** — error and edge paths covered; no assertion weakened to make a test pass.
 **Hygiene** — no unrelated reformatting, no dead code, no TODO without an issue, docs,
-`.env.example` and the FR/NFR status in `docs/spec.md` updated.
+`.env.example` and the FR/NFR status in `docs/SPEC.md` updated.
 
 Output: a table of `file:line | severity (blocker/major/nit) | issue | suggested fix`. Then fix
 the blockers and majors, leave the nits listed.

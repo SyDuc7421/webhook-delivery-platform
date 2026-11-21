@@ -3,7 +3,7 @@ description: Scaffold a Kafka consumer loop with idempotency, retry tiers and DL
 argument-hint: <topic> <group> — e.g. deliveries delivery-worker
 ---
 
-Read `docs/MESSAGING.md` and `docs/architect.md` §3 first. Build a consumer for `$ARGUMENTS`:
+Read `docs/MESSAGING.md` and `docs/ARCHITECT.md` §3 first. Build a consumer for `$ARGUMENTS`:
 
 1. Topic name + consumer group constant in `backend/internal/messaging/kafka/topics.go`. A new
    topic also needs `kafka-init` in `deploy/docker-compose.yml`, the `kafka` Terraform module and

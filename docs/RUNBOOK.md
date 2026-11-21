@@ -65,6 +65,6 @@ recovery, consumers resume from committed offsets; duplicates are expected (at-l
 
 ## 8. AWS demo session
 
-Follow [deploy.md §4](deploy.md#4-demo-session-runbook-outline). Rollback = re-run `deploy`
+Follow [DEPLOY.md §4](DEPLOY.md#4-demo-session-runbook-outline). Rollback = re-run `deploy`
 with the previous image tag. Always finish with `destroy` and confirm in the console that
 nothing is left running; the Budgets alert is the backstop (NFR-C2).

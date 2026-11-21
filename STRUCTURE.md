@@ -11,12 +11,11 @@ Started from the shared Go backend template; adapted to webhook-platform on 2026
 | `README.md` | Project pitch, quick start, links. |
 | `SECURITY.md` | Reporting + security baseline (SSRF, signing, secrets). |
 | `STRUCTURE.md` | This file. |
-| `docs/spec.md` | What the system must do: FR/NFR with IDs, status and milestone. |
-| `docs/architect.md` (+ `architect.html`) | System design: processes, Kafka topics, Postgres, Redis, security, observability. |
-| `docs/deploy.md` | Local compose, AWS (Terraform, Free plan), CI/CD. |
-| `docs/roadmap.md` | Milestones M0–M7, estimates, stretch backlog. |
+| `docs/SPEC.md` | What the system must do: FR/NFR with IDs, status and milestone. |
+| `docs/ARCHITECT.md` (+ `architect.html`, visual version) | System design: processes, Kafka topics, Postgres, Redis, security, observability, code layering. |
+| `docs/DEPLOY.md` | Local setup (ports, tooling, troubleshooting), AWS (Terraform, Free plan), CI/CD. |
+| `docs/ROADMAP.md` | Milestones M0–M7, estimates, stretch backlog. |
 | `docs/superpowers/specs/` | Design overview: why the project exists, goals, constraints, decision index. |
-| `docs/ARCHITECTURE.md` | Code layering inside each Go process. |
 | `docs/CONVENTIONS.md` | Go style: packages, errors, structs, concurrency, logging. |
 | `docs/API.md` | Surfaces, URLs, status codes, envelope, cursor pagination, chi handler skeleton. |
 | `docs/DATABASE.md` | Migrations, schema rules, outbox, partitions, keyset queries, transactions. |
@@ -24,7 +23,6 @@ Started from the shared Go backend template; adapted to webhook-platform on 2026
 | `docs/CACHING.md` | Redis keys, TTL ≤ 60 s, delete-on-write, fail-open rules. |
 | `docs/OBSERVABILITY.md` | slog → Loki, pipeline metrics, traces across Kafka, health, alerts. |
 | `docs/TESTING.md` | Test levels (unit → failure → e2e → k6), Go test rules, must-cover paths. |
-| `docs/LOCAL_DEV.md` | Ports, tooling, troubleshooting. |
 | `docs/RUNBOOK.md` | Symptom → check → fix, per alert. |
 | `docs/adr/` | Decision records: `0000-template.md`, ADR-0001…0009. |
 | `docs/results/` | k6 and `EXPLAIN ANALYZE` results, traceable to a commit. |

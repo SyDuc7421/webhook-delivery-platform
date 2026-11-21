@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # One image per process: docker build --build-arg APP=relay .
-ARG GO_VERSION=1.26
+ARG GO_VERSION=1.27.4
 
 FROM golang:${GO_VERSION}-alpine AS build
 WORKDIR /src
@@ -13,10 +13,10 @@ ARG VERSION=dev
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=linux go build -trimpath \
-    -ldflags="-s -w -X main.version=${VERSION}" \
+    -ldflags="-s -w -X github.com/SyDuc7421/webhook-delivery-platform/backend/cmd/internal/boot.Version=${VERSION}" \
     -o /out/app ./cmd/${APP}
 
-FROM gcr.io/distroless/static-debian12:nonroot AS runtime
+FROM gcr.io/distroless/static-debian13:nonroot AS runtime
 COPY --from=build /usr/share/zoneinfo /usr/share/zoneinfo
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=build /out/app /app

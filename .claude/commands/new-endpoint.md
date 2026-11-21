@@ -3,7 +3,7 @@ description: Scaffold a new HTTP endpoint through every layer, in order
 argument-hint: <METHOD> <path> — e.g. POST /v1/consumers/{consumer_id}/endpoints
 ---
 
-Read `docs/API.md`, `docs/CONVENTIONS.md` and the FR in `docs/spec.md` first. Then implement `$ARGUMENTS` in this order,
+Read `docs/API.md`, `docs/CONVENTIONS.md` and the FR in `docs/SPEC.md` first. Then implement `$ARGUMENTS` in this order,
 stopping to show me the plan before you write code:
 
 1. **Contract** — request/response DTOs in `internal/http/dto/`, with `validate` tags. Define the
@@ -19,7 +19,7 @@ stopping to show me the plan before you write code:
 6. **Route** — register in `internal/http/router.go` (chi) in the right group (API key / JWT / public).
 7. **Tests** — table-driven unit tests for the service (happy, validation, not-found, conflict,
    dependency failure) + an integration test for the route.
-8. **Docs** — update `docs/openapi.yaml`, `docs/API.md` if a convention was extended, and the status of the FR in `docs/spec.md`.
+8. **Docs** — update `docs/openapi.yaml`, `docs/API.md` if a convention was extended, and the status of the FR in `docs/SPEC.md`.
 
 Finish with `make check` and report: files added/changed, error codes introduced, migration name,
 what is not covered.

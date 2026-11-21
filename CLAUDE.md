@@ -6,7 +6,7 @@ workflow.** (If you prefer, replace this file with a symlink: `ln -s AGENTS.md C
 
 ## Session start
 
-1. Read `AGENTS.md` §2 (golden rules) and §4 (repo map). Check `docs/roadmap.md` for the
+1. Read `AGENTS.md` §2 (golden rules) and §4 (repo map). Check `docs/ROADMAP.md` for the
    current milestone.
 2. Read only the `docs/` file the task needs (`AGENTS.md` §7). Do not preload all docs.
 3. `git status` + `git log --oneline -10` to see where the repo is.
