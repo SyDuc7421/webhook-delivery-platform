@@ -10,10 +10,21 @@ import (
 
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/domain"
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/observability"
+	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/platform/authn"
+	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/service"
 )
 
-// NewRouter builds the api router. Feature routes (/v1/...) are mounted from M1.
-func NewRouter(logger *slog.Logger, health *observability.Health) http.Handler {
+// RouterDeps are the handlers' collaborators. Later milestones add fields.
+type RouterDeps struct {
+	Logger *slog.Logger
+	Health *observability.Health
+	Auth   *service.AuthService
+	JWT    *authn.JWT
+}
+
+// NewRouter builds the api router.
+func NewRouter(d RouterDeps) http.Handler {
+	logger, health := d.Logger, d.Health
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(requestIDHeader)
@@ -22,6 +33,21 @@ func NewRouter(logger *slog.Logger, health *observability.Health) http.Handler {
 
 	r.Get("/healthz", health.Live)
 	r.Get("/readyz", health.Ready)
+
+	if d.Auth != nil {
+		auth := &authHandler{svc: d.Auth, logger: logger}
+		r.Route("/v1", func(r chi.Router) {
+			r.Post("/auth/register", auth.register)
+			r.Post("/auth/login", auth.login)
+			r.Post("/auth/refresh", auth.refresh)
+			r.Post("/auth/logout", auth.logout)
+
+			r.Group(func(r chi.Router) {
+				r.Use(requireUser(d.JWT, logger))
+				r.Get("/me", auth.me)
+			})
+		})
+	}
 
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, logger, domain.ErrNotFound)

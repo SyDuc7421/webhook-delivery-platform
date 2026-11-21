@@ -4,7 +4,10 @@ package test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -14,6 +17,7 @@ import (
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/domain"
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/platform"
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/repository/postgres"
+	"github.com/SyDuc7421/webhook-delivery-platform/backend/test/apitest"
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/test/testenv"
 )
 
@@ -158,6 +162,124 @@ func TestRefreshStore(t *testing.T) {
 		}
 		if _, err := store.Consume(ctx, "hash-1"); !errors.Is(err, domain.ErrUnavailable) {
 			t.Errorf("err = %v, want ErrUnavailable", err)
+		}
+	})
+}
+
+type sessionBody struct {
+	Data struct {
+		User struct {
+			ID    string `json:"id"`
+			Email string `json:"email"`
+			Role  string `json:"role"`
+		} `json:"user"`
+		Org struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"org"`
+		AccessToken  string `json:"access_token"`
+		ExpiresAt    string `json:"expires_at"`
+		RefreshToken string `json:"refresh_token"`
+	} `json:"data"`
+}
+
+func decode[T any](t *testing.T, b []byte) T {
+	t.Helper()
+	var v T
+	if err := json.Unmarshal(b, &v); err != nil {
+		t.Fatalf("decode %s: %v", b, err)
+	}
+	return v
+}
+
+func TestAuthFlow(t *testing.T) {
+	env := testenv.Start(t)
+	c := apitest.New(t, env)
+
+	resp, body := c.Do(http.MethodPost, "/v1/auth/register", "", map[string]string{
+		"email": " Alice@Example.com ", "password": "correct horse battery", "org_name": "Acme",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("register = %d %s", resp.StatusCode, body)
+	}
+	reg := decode[sessionBody](t, body)
+	if reg.Data.User.Email != "alice@example.com" || reg.Data.User.Role != "owner" || reg.Data.Org.Name != "Acme" ||
+		reg.Data.AccessToken == "" || reg.Data.RefreshToken == "" {
+		t.Fatalf("register body = %s", body)
+	}
+	if strings.Contains(string(body), "password") {
+		t.Errorf("response must not mention the password hash: %s", body)
+	}
+
+	resp, body = c.Do(http.MethodPost, "/v1/auth/register", "", map[string]string{
+		"email": "ALICE@example.com", "password": "correct horse battery", "org_name": "Other",
+	})
+	if resp.StatusCode != http.StatusConflict {
+		t.Errorf("duplicate register = %d %s, want 409", resp.StatusCode, body)
+	}
+
+	resp, body = c.Do(http.MethodGet, "/v1/me", reg.Data.AccessToken, nil)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), reg.Data.Org.ID) {
+		t.Fatalf("me = %d %s", resp.StatusCode, body)
+	}
+	if r, _ := c.Do(http.MethodGet, "/v1/me", "", nil); r.StatusCode != http.StatusUnauthorized {
+		t.Errorf("me without token = %d, want 401", r.StatusCode)
+	}
+
+	resp, body = c.Do(http.MethodPost, "/v1/auth/login", "", map[string]string{"email": "alice@example.com", "password": "correct horse battery"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("login = %d %s", resp.StatusCode, body)
+	}
+	login := decode[sessionBody](t, body)
+	if r, _ := c.Do(http.MethodPost, "/v1/auth/login", "", map[string]string{"email": "alice@example.com", "password": "wrong password!!"}); r.StatusCode != http.StatusUnauthorized {
+		t.Errorf("bad login = %d, want 401", r.StatusCode)
+	}
+
+	resp, body = c.Do(http.MethodPost, "/v1/auth/refresh", "", map[string]string{"refresh_token": login.Data.RefreshToken})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("refresh = %d %s", resp.StatusCode, body)
+	}
+	refreshed := decode[sessionBody](t, body)
+	if refreshed.Data.RefreshToken == login.Data.RefreshToken {
+		t.Error("refresh must rotate the token")
+	}
+	if r, _ := c.Do(http.MethodPost, "/v1/auth/refresh", "", map[string]string{"refresh_token": login.Data.RefreshToken}); r.StatusCode != http.StatusUnauthorized {
+		t.Errorf("reused refresh = %d, want 401", r.StatusCode)
+	}
+
+	if r, _ := c.Do(http.MethodPost, "/v1/auth/logout", "", map[string]string{"refresh_token": refreshed.Data.RefreshToken}); r.StatusCode != http.StatusNoContent {
+		t.Errorf("logout = %d, want 204", r.StatusCode)
+	}
+	if r, _ := c.Do(http.MethodPost, "/v1/auth/refresh", "", map[string]string{"refresh_token": refreshed.Data.RefreshToken}); r.StatusCode != http.StatusUnauthorized {
+		t.Errorf("refresh after logout = %d, want 401", r.StatusCode)
+	}
+
+	t.Run("concurrent refresh has one winner", func(t *testing.T) {
+		codes := make(chan int, 2)
+		var wg sync.WaitGroup
+		for range 2 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				resp, _ := c.Do(http.MethodPost, "/v1/auth/refresh", "", map[string]string{"refresh_token": reg.Data.RefreshToken})
+				codes <- resp.StatusCode
+			}()
+		}
+		wg.Wait()
+		close(codes)
+		got := map[int]int{}
+		for code := range codes {
+			got[code]++
+		}
+		if got[http.StatusOK] != 1 || got[http.StatusUnauthorized] != 1 {
+			t.Errorf("codes = %v, want one 200 and one 401", got)
+		}
+	})
+
+	t.Run("validation details", func(t *testing.T) {
+		resp, body := c.Do(http.MethodPost, "/v1/auth/register", "", map[string]string{"email": "x", "password": "short", "org_name": "A"})
+		if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(body), `"field":"password"`) || !strings.Contains(string(body), `"field":"email"`) {
+			t.Errorf("register invalid = %d %s", resp.StatusCode, body)
 		}
 	})
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/cmd/internal/boot"
+	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/app"
 	apihttp "github.com/SyDuc7421/webhook-delivery-platform/backend/internal/http"
 )
 
@@ -18,12 +19,17 @@ func main() {
 		os.Exit(healthcheck())
 	}
 	boot.Main("api", func(ctx context.Context, p *boot.Process) error {
-		if _, err := p.Postgres(ctx); err != nil {
+		pool, err := p.Postgres(ctx)
+		if err != nil {
 			return err
 		}
-		p.Redis()
-		router := apihttp.NewRouter(p.Logger, p.Health())
-		p.Add(apihttp.NewServer(p.Config.HTTP.Port, p.Config.HTTP.RequestTimeout, router, p.Logger))
+		handler, err := app.NewAPIHandler(app.APIDeps{
+			Config: p.Config, Pool: pool, Redis: p.Redis(), Logger: p.Logger, Health: p.Health(),
+		})
+		if err != nil {
+			return err
+		}
+		p.Add(apihttp.NewServer(p.Config.HTTP.Port, p.Config.HTTP.RequestTimeout, handler, p.Logger))
 		return nil
 	})
 }
