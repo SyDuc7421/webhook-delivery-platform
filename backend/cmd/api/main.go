@@ -24,7 +24,7 @@ func main() {
 			return err
 		}
 		handler, err := app.NewAPIHandler(app.APIDeps{
-			Config: p.Config, Pool: pool, Redis: p.Redis(), Logger: p.Logger, Health: p.Health(),
+			Config: p.Config, Pool: pool, Redis: p.Redis(), Logger: p.Logger, Health: p.Health(), Registry: p.Registry,
 		})
 		if err != nil {
 			return err

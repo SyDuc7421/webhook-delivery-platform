@@ -28,9 +28,10 @@ func orgIDFrom(ctx context.Context) (uuid.UUID, bool) {
 	return id, ok
 }
 
-// rateLimit limits requests per org (FR-I5). When the limiter is unavailable the request is
-// let through and counted in failOpen, so ingest never depends on Redis (NFR-D1).
-func rateLimit(rl domain.RateLimiter, logger *slog.Logger, failOpen prometheus.Counter) func(http.Handler) http.Handler {
+// rateLimit limits requests per org (FR-I5) and counts denials in denied. When the limiter is
+// unavailable the request is let through and counted in failOpen, so ingest never depends on
+// Redis (NFR-D1).
+func rateLimit(rl domain.RateLimiter, logger *slog.Logger, failOpen, denied prometheus.Counter) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			orgID, ok := orgIDFrom(r.Context())
@@ -46,6 +47,7 @@ func rateLimit(rl domain.RateLimiter, logger *slog.Logger, failOpen prometheus.C
 				return
 			}
 			if !allowed {
+				denied.Inc()
 				w.Header().Set("Retry-After", strconv.Itoa(retryAfterSeconds(retryAfter)))
 				respondError(w, r, logger, domain.ErrRateLimited)
 				return

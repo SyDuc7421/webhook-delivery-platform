@@ -15,6 +15,8 @@ import (
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/domain"
 )
 
+type rateLimitCounters struct{ failOpen, denied prometheus.Counter }
+
 type fakeLimiter struct {
 	allowed    bool
 	retryAfter time.Duration
@@ -29,11 +31,14 @@ func (f *fakeLimiter) Allow(_ context.Context, orgID uuid.UUID) (bool, time.Dura
 	return f.allowed, f.retryAfter, f.err
 }
 
-func serveRateLimited(t *testing.T, rl domain.RateLimiter, org uuid.UUID, withOrg bool) (*httptest.ResponseRecorder, prometheus.Counter, *bool) {
+func serveRateLimited(t *testing.T, rl domain.RateLimiter, org uuid.UUID, withOrg bool) (*httptest.ResponseRecorder, rateLimitCounters, *bool) {
 	t.Helper()
-	failOpen := prometheus.NewCounter(prometheus.CounterOpts{Name: "test_fail_open_total"})
+	counters := rateLimitCounters{
+		failOpen: prometheus.NewCounter(prometheus.CounterOpts{Name: "test_fail_open_total"}),
+		denied:   prometheus.NewCounter(prometheus.CounterOpts{Name: "test_denied_total"}),
+	}
 	called := false
-	h := rateLimit(rl, discard, failOpen)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := rateLimit(rl, discard, counters.failOpen, counters.denied)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusAccepted)
 	}))
@@ -43,14 +48,15 @@ func serveRateLimited(t *testing.T, rl domain.RateLimiter, org uuid.UUID, withOr
 	}
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/events", nil))
-	return rec, failOpen, &called
+	return rec, counters, &called
 }
 
 func TestRateLimitAllows(t *testing.T) {
 	t.Parallel()
 	org := uuid.New()
 	rl := &fakeLimiter{allowed: true}
-	rec, failOpen, called := serveRateLimited(t, rl, org, true)
+	rec, counters, called := serveRateLimited(t, rl, org, true)
+	failOpen := counters.failOpen
 	if rec.Code != http.StatusAccepted || !*called {
 		t.Errorf("code = %d, handler called = %v", rec.Code, *called)
 	}
@@ -75,9 +81,12 @@ func TestRateLimitDenies(t *testing.T) {
 		{59*time.Second + time.Millisecond, "60"},
 	}
 	for _, tt := range tests {
-		rec, _, called := serveRateLimited(t, &fakeLimiter{allowed: false, retryAfter: tt.retryAfter}, uuid.New(), true)
+		rec, counters, called := serveRateLimited(t, &fakeLimiter{allowed: false, retryAfter: tt.retryAfter}, uuid.New(), true)
 		if rec.Code != http.StatusTooManyRequests || *called {
 			t.Fatalf("code = %d, handler called = %v", rec.Code, *called)
+		}
+		if got := testutil.ToFloat64(counters.denied); got != 1 {
+			t.Errorf("denied counter = %v, want 1", got)
 		}
 		if got := rec.Header().Get("Retry-After"); got != tt.want {
 			t.Errorf("retryAfter %v: Retry-After = %q, want %q", tt.retryAfter, got, tt.want)
@@ -90,7 +99,8 @@ func TestRateLimitDenies(t *testing.T) {
 
 func TestRateLimitFailsOpen(t *testing.T) {
 	t.Parallel()
-	rec, failOpen, called := serveRateLimited(t, &fakeLimiter{err: errors.New("redis: connection refused")}, uuid.New(), true)
+	rec, counters, called := serveRateLimited(t, &fakeLimiter{err: errors.New("redis: connection refused")}, uuid.New(), true)
+	failOpen := counters.failOpen
 	if rec.Code != http.StatusAccepted || !*called {
 		t.Errorf("code = %d, handler called = %v; a limiter error must let the request through (NFR-D1)", rec.Code, *called)
 	}

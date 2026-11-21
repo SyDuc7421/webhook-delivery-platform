@@ -451,3 +451,75 @@ func (f *fakeEndpoints) Delete(_ context.Context, orgID, id uuid.UUID) error {
 	}
 	return domain.ErrNotFound
 }
+
+type fakeEvents struct {
+	mu   sync.Mutex
+	rows []domain.Event
+}
+
+func newFakeEvents() *fakeEvents { return &fakeEvents{} }
+
+func (f *fakeEvents) Insert(_ context.Context, e domain.Event) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if e.IdempotencyKey != nil {
+		for _, r := range f.rows {
+			if r.OrgID == e.OrgID && r.IdempotencyKey != nil && *r.IdempotencyKey == *e.IdempotencyKey {
+				return false, nil
+			}
+		}
+	}
+	f.rows = append(f.rows, e)
+	return true, nil
+}
+
+func (f *fakeEvents) GetByIdempotencyKey(_ context.Context, orgID uuid.UUID, key string) (domain.Event, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, r := range f.rows {
+		if r.OrgID == orgID && r.IdempotencyKey != nil && *r.IdempotencyKey == key {
+			return r, nil
+		}
+	}
+	return domain.Event{}, domain.ErrNotFound
+}
+
+type fakeOutbox struct {
+	mu      sync.Mutex
+	queued  []uuid.UUID
+	failOn  error
+	deleted []int64
+	batch   []domain.OutboxRecord
+}
+
+func (f *fakeOutbox) Enqueue(_ context.Context, id uuid.UUID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failOn != nil {
+		return f.failOn
+	}
+	f.queued = append(f.queued, id)
+	return nil
+}
+
+func (f *fakeOutbox) LockBatch(_ context.Context, limit int) ([]domain.OutboxRecord, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.batch) > limit {
+		return f.batch[:limit], nil
+	}
+	return f.batch, nil
+}
+
+func (f *fakeOutbox) Delete(_ context.Context, ids []int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deleted = append(f.deleted, ids...)
+	return nil
+}
+
+func (f *fakeOutbox) Backlog(context.Context) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return int64(len(f.queued)), nil
+}

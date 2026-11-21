@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -18,6 +20,7 @@ import (
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/domain"
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/platform"
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/repository/postgres"
+	"github.com/SyDuc7421/webhook-delivery-platform/backend/test/apitest"
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/test/testenv"
 )
 
@@ -304,4 +307,240 @@ func TestRateLimiter(t *testing.T) {
 			t.Errorf("err = %v, want ErrUnavailable", err)
 		}
 	})
+}
+
+type ingestResp struct {
+	Data struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+	} `json:"data"`
+}
+
+func TestIngest(t *testing.T) {
+	env := testenv.Start(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	c := apitest.New(t, env)
+	pool, err := postgres.NewPool(ctx, env.Config.Postgres)
+	if err != nil {
+		t.Fatalf("pool: %v", err)
+	}
+	defer pool.Close()
+
+	owner, orgID := registerOwner(ctx, t, c, "owner@acme.io", "Acme")
+	mustCreate := func(path string, body any) []byte {
+		t.Helper()
+		resp, raw := c.Do(ctx, http.MethodPost, path, owner, body)
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("POST %s = %d %s", path, resp.StatusCode, raw)
+		}
+		return raw
+	}
+	mustCreate("/v1/event-types", map[string]any{"name": "payment.paid"})
+	mustCreate("/v1/consumers", map[string]any{"uid": "shop_42"})
+	keyBody := decode[struct {
+		Data struct {
+			ID  string `json:"id"`
+			Key string `json:"key"`
+		} `json:"data"`
+	}](t, mustCreate("/v1/api-keys", map[string]any{"name": "ingest"}))
+	key := keyBody.Data.Key
+
+	counts := func() (events, outbox int) {
+		t.Helper()
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM events WHERE org_id = $1`, orgID).Scan(&events); err != nil {
+			t.Fatal(err)
+		}
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM outbox`).Scan(&outbox); err != nil {
+			t.Fatal(err)
+		}
+		return events, outbox
+	}
+	send := func(token string, headers map[string]string, body string) (apitest.Response, []byte) {
+		t.Helper()
+		return c.DoRaw(ctx, http.MethodPost, "/v1/events", token, strings.NewReader(body), headers)
+	}
+	event := func(payload string) string {
+		return `{"consumer_uid":"shop_42","type":"payment.paid","payload":` + payload + `}`
+	}
+
+	t.Run("accepted without Kafka: event and outbox row are committed together", func(t *testing.T) {
+		resp, body := send(key, map[string]string{"traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"}, event(`{"amount":10}`))
+		if resp.StatusCode != http.StatusAccepted {
+			t.Fatalf("ingest = %d %s", resp.StatusCode, body)
+		}
+		got := decode[ingestResp](t, body)
+		if got.Data.Status != "accepted" || got.Data.ID == "" {
+			t.Fatalf("body = %s", body)
+		}
+		if e, o := counts(); e != 1 || o != 1 {
+			t.Errorf("events = %d, outbox = %d, want 1 and 1 (FR-I4: no relay is running)", e, o)
+		}
+		var tp *string
+		if err := pool.QueryRow(ctx, `SELECT traceparent FROM events WHERE id = $1`, got.Data.ID).Scan(&tp); err != nil || tp == nil || !strings.HasPrefix(*tp, "00-0af765") {
+			t.Errorf("traceparent = %v, err = %v; the trace context must be stored for the relay", tp, err)
+		}
+	})
+
+	t.Run("authentication", func(t *testing.T) {
+		for name, token := range map[string]string{"no key": "", "garbage": "nope", "unknown key": "whk_" + strings.Repeat("A", 43), "dashboard jwt": owner} {
+			resp, body := send(token, nil, event(`{}`))
+			if resp.StatusCode != http.StatusUnauthorized {
+				t.Errorf("%s = %d %s, want 401", name, resp.StatusCode, body)
+			}
+		}
+	})
+
+	t.Run("payload boundaries", func(t *testing.T) {
+		exact := `{"k":"` + strings.Repeat("a", 262144-8) + `"}`
+		over := `{"k":"` + strings.Repeat("a", 262144-7) + `"}`
+		if resp, body := send(key, nil, event(exact)); resp.StatusCode != http.StatusAccepted {
+			t.Errorf("exactly 262144 bytes = %d %.200s, want 202", resp.StatusCode, body)
+		}
+		if resp, body := send(key, nil, event(over)); resp.StatusCode != http.StatusRequestEntityTooLarge || !strings.Contains(string(body), "PAYLOAD_TOO_LARGE") {
+			t.Errorf("262145 bytes = %d %.200s, want 413", resp.StatusCode, body)
+		}
+		huge := event(`{"k":"` + strings.Repeat("a", 400000) + `"}`)
+		if resp, _ := send(key, nil, huge); resp.StatusCode != http.StatusRequestEntityTooLarge {
+			t.Errorf("400 KB body = %d, want 413", resp.StatusCode)
+		}
+	})
+
+	t.Run("malformed requests are 400", func(t *testing.T) {
+		for name, body := range map[string]string{
+			"trailing garbage": event(`{}`) + ` junk`,
+			"second object":    event(`{}`) + `{}`,
+			"unknown field":    `{"consumer_uid":"shop_42","type":"payment.paid","payload":{},"priority":1}`,
+			"payload array":    event(`[1,2]`),
+			"payload string":   event(`"x"`),
+			"payload null":     event(`null`),
+			"missing payload":  `{"consumer_uid":"shop_42","type":"payment.paid"}`,
+			"missing type":     `{"consumer_uid":"shop_42","payload":{}}`,
+			"not json":         `hello`,
+			"empty body":       ``,
+		} {
+			resp, raw := send(key, nil, body)
+			if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(raw), "VALIDATION_FAILED") {
+				t.Errorf("%s = %d %.200s, want 400 VALIDATION_FAILED", name, resp.StatusCode, raw)
+			}
+		}
+	})
+
+	t.Run("unknown consumer or event type is 422", func(t *testing.T) {
+		resp, body := send(key, nil, `{"consumer_uid":"nobody","type":"payment.paid","payload":{}}`)
+		if resp.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(string(body), "consumer_uid") {
+			t.Errorf("unknown consumer = %d %s", resp.StatusCode, body)
+		}
+		resp, body = send(key, nil, `{"consumer_uid":"shop_42","type":"nope.nope","payload":{}}`)
+		if resp.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(string(body), `"field":"type"`) {
+			t.Errorf("unknown type = %d %s", resp.StatusCode, body)
+		}
+	})
+
+	t.Run("concurrent requests with one Idempotency-Key create one event", func(t *testing.T) {
+		beforeE, beforeO := counts()
+		ids := make(chan string, 10)
+		var replayed atomic.Int32
+		var wg sync.WaitGroup
+		for range 10 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				resp, body := send(key, map[string]string{"Idempotency-Key": "order-1-paid"}, event(`{"n":1}`))
+				if resp.StatusCode != http.StatusAccepted {
+					t.Errorf("status = %d %s", resp.StatusCode, body)
+					return
+				}
+				if resp.Header.Get("Idempotent-Replayed") == "true" {
+					replayed.Add(1)
+				}
+				ids <- decode[ingestResp](t, body).Data.ID
+			}()
+		}
+		wg.Wait()
+		close(ids)
+		distinct := map[string]bool{}
+		for id := range ids {
+			distinct[id] = true
+		}
+		if len(distinct) != 1 {
+			t.Errorf("distinct ids = %d, want 1: %v", len(distinct), distinct)
+		}
+		if replayed.Load() != 9 {
+			t.Errorf("replayed responses = %d, want 9", replayed.Load())
+		}
+		if e, o := counts(); e-beforeE != 1 || o-beforeO != 1 {
+			t.Errorf("new events = %d, new outbox rows = %d, want 1 and 1", e-beforeE, o-beforeO)
+		}
+		resp, _ := send(key, map[string]string{"Idempotency-Key": "bad key with spaces"}, event(`{}`))
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("invalid Idempotency-Key = %d, want 400", resp.StatusCode)
+		}
+	})
+
+	t.Run("a revoked key is rejected immediately", func(t *testing.T) {
+		if resp, body := c.Do(ctx, http.MethodDelete, "/v1/api-keys/"+keyBody.Data.ID, owner, nil); resp.StatusCode != http.StatusNoContent {
+			t.Fatalf("revoke = %d %s", resp.StatusCode, body)
+		}
+		if resp, body := send(key, nil, event(`{}`)); resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("revoked key = %d %s, want 401 (FR-K3)", resp.StatusCode, body)
+		}
+	})
+
+	t.Run("redis down does not stop ingest", func(t *testing.T) {
+		fresh := decode[struct {
+			Data struct {
+				Key string `json:"key"`
+			} `json:"data"`
+		}](t, mustCreate("/v1/api-keys", map[string]any{"name": "fresh"})).Data.Key
+		timeout := 5 * time.Second
+		if err := env.Redis.Stop(ctx, &timeout); err != nil {
+			t.Fatalf("stop redis: %v", err)
+		}
+		beforeE, _ := counts()
+		resp, body := send(fresh, nil, event(`{"redis":"down"}`))
+		if resp.StatusCode != http.StatusAccepted {
+			t.Fatalf("ingest with redis down = %d %s, want 202 (NFR-D1)", resp.StatusCode, body)
+		}
+		if e, _ := counts(); e != beforeE+1 {
+			t.Errorf("event not stored while redis was down")
+		}
+	})
+}
+
+func TestIngestRateLimit(t *testing.T) {
+	env := testenv.Start(t)
+	env.Config.Ingest.RateLimitPerMin = 3
+	ctx := t.Context()
+	c := apitest.New(t, env)
+	owner, _ := registerOwner(ctx, t, c, "owner@acme.io", "Acme")
+	for path, body := range map[string]any{
+		"/v1/event-types": map[string]any{"name": "payment.paid"}, "/v1/consumers": map[string]any{"uid": "shop_42"},
+	} {
+		if resp, raw := c.Do(ctx, http.MethodPost, path, owner, body); resp.StatusCode != http.StatusCreated {
+			t.Fatalf("POST %s = %d %s", path, resp.StatusCode, raw)
+		}
+	}
+	_, raw := c.Do(ctx, http.MethodPost, "/v1/api-keys", owner, map[string]any{"name": "k"})
+	key := decode[struct {
+		Data struct {
+			Key string `json:"key"`
+		} `json:"data"`
+	}](t, raw).Data.Key
+
+	send := func() (apitest.Response, []byte) {
+		return c.Do(ctx, http.MethodPost, "/v1/events", key, map[string]any{"consumer_uid": "shop_42", "type": "payment.paid", "payload": map[string]any{}})
+	}
+	for i := range 3 {
+		if resp, body := send(); resp.StatusCode != http.StatusAccepted {
+			t.Fatalf("request %d = %d %s", i+1, resp.StatusCode, body)
+		}
+	}
+	resp, body := send()
+	if resp.StatusCode != http.StatusTooManyRequests || !strings.Contains(string(body), "RATE_LIMITED") {
+		t.Fatalf("4th request = %d %s, want 429", resp.StatusCode, body)
+	}
+	if ra := resp.Header.Get("Retry-After"); ra == "" || ra == "0" {
+		t.Errorf("Retry-After = %q, want a positive number of seconds (FR-I5)", ra)
+	}
 }

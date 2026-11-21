@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/domain"
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/observability"
@@ -24,6 +25,12 @@ type RouterDeps struct {
 	APIKeys   *service.APIKeyService
 	Catalog   *service.CatalogService
 	Endpoints *service.EndpointService
+
+	Ingest            *service.IngestService
+	MaxPayloadBytes   int
+	RateLimiter       domain.RateLimiter
+	RateLimitFailOpen prometheus.Counter
+	RateLimitDenied   prometheus.Counter
 }
 
 // NewRouter builds the api router.
@@ -45,6 +52,12 @@ func NewRouter(d RouterDeps) http.Handler {
 			r.Post("/auth/login", auth.login)
 			r.Post("/auth/refresh", auth.refresh)
 			r.Post("/auth/logout", auth.logout)
+
+			if d.Ingest != nil {
+				ingest := &ingestHandler{svc: d.Ingest, maxPayload: d.MaxPayloadBytes, logger: logger}
+				r.With(requireAPIKey(d.APIKeys, logger), rateLimit(d.RateLimiter, logger, d.RateLimitFailOpen, d.RateLimitDenied)).
+					Post("/events", ingest.handle)
+			}
 
 			r.Group(func(r chi.Router) {
 				r.Use(requireUser(d.JWT, logger))
