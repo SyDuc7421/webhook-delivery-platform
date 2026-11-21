@@ -1,0 +1,87 @@
+# golangci-lint v2 config (run from backend/). Keep in sync with .github/workflows/ci.yml.
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+  build-tags:
+    - integration
+
+linters:
+  default: standard   # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - bodyclose
+    - contextcheck      # ctx propagated correctly
+    - copyloopvar
+    - dupl
+    - durationcheck
+    - errorlint         # %w and errors.Is/As
+    - exhaustive        # switch over enums
+    - forbidigo         # no fmt.Print* in prod code
+    - gocritic
+    - gocyclo
+    - goconst
+    - gosec
+    - misspell
+    - nakedret
+    - nilerr
+    - noctx             # no http request without ctx
+    - nolintlint
+    - prealloc
+    - revive
+    - rowserrcheck
+    - sqlclosecheck
+    - unconvert
+    - unparam
+    - wastedassign
+    - whitespace
+
+  settings:
+    govet:
+      enable:
+        - shadow
+    gocyclo:
+      min-complexity: 15
+    dupl:
+      threshold: 150
+    goconst:
+      min-len: 3
+      min-occurrences: 3
+    forbidigo:
+      forbid:
+        - pattern: '^fmt\.Print.*$'
+          msg: use log/slog instead
+        - pattern: '^panic$'
+          msg: panic only in main() bootstrap
+    errorlint:
+      errorf: true
+    gosec:
+      excludes:
+        - G104   # handled by errcheck
+    revive:
+      rules:
+        - name: exported
+        - name: error-strings
+        - name: error-naming
+        - name: context-as-argument
+        - name: package-comments
+          disabled: true
+
+  exclusions:
+    generated: lax
+    rules:
+      - path: _test\.go
+        linters: [dupl, gosec, goconst, gocyclo, errcheck]
+      - path: cmd/
+        linters: [forbidigo]
+      - path: (.*)\.gen\.go
+        linters: [all]
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/SyDuc7421/webhook-delivery-platform/backend

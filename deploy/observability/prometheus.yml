@@ -1,0 +1,28 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    env: local
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  # Every Go process serves /metrics on METRICS_ADDR (:9100). See docs/OBSERVABILITY.md.
+  - job_name: webhook-platform
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["api:9100"]
+        labels: { service: api }
+      - targets: ["relay:9100"]
+        labels: { service: relay }
+      - targets: ["dispatcher:9100"]
+        labels: { service: dispatcher }
+      - targets: ["delivery-worker:9100"]
+        labels: { service: delivery-worker }
+      - targets: ["retry-worker:9100"]
+        labels: { service: retry-worker }
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

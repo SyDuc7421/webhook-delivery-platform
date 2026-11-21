@@ -1,0 +1,229 @@
+name: "webhook-platform"
+
+# Paths are relative to this file (deploy/). Run through the root Makefile:
+#   make up        backing services only
+#   make up-apps   backing services + every app process (profile "apps")
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-common: &common
+  restart: unless-stopped
+  logging: *default-logging
+  networks: [backend]
+
+x-app: &app
+  <<: *common
+  profiles: ["apps"]
+  env_file:
+    - path: ../.env
+      required: false
+  environment: &app-env
+    POSTGRES_HOST: postgres
+    POSTGRES_PORT: "5432"
+    REDIS_ADDR: redis:6379
+    KAFKA_BROKERS: kafka:29092
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://alloy:4317
+  depends_on: &app-deps
+    postgres: { condition: service_healthy }
+    redis: { condition: service_healthy }
+    kafka-init: { condition: service_completed_successfully }
+
+services:
+  # ---------------- app processes (see docs/architect.md §1) ----------------
+  api:
+    <<: *app
+    build: { context: ../backend, target: runtime, args: { APP: api } }
+    environment: { <<: *app-env, OTEL_SERVICE_NAME: api }
+    ports: ["${API_PORT:-8080}:8080"]
+    healthcheck:
+      test: ["CMD", "/app", "healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
+  relay:
+    <<: *app
+    build: { context: ../backend, target: runtime, args: { APP: relay } }
+    environment: { <<: *app-env, OTEL_SERVICE_NAME: relay }
+
+  dispatcher:
+    <<: *app
+    build: { context: ../backend, target: runtime, args: { APP: dispatcher } }
+    environment: { <<: *app-env, OTEL_SERVICE_NAME: dispatcher }
+
+  delivery-worker:
+    <<: *app
+    build: { context: ../backend, target: runtime, args: { APP: delivery-worker } }
+    environment: { <<: *app-env, OTEL_SERVICE_NAME: delivery-worker }
+
+  retry-worker:
+    <<: *app
+    build: { context: ../backend, target: runtime, args: { APP: retry-worker } }
+    environment: { <<: *app-env, OTEL_SERVICE_NAME: retry-worker }
+
+  # ---------------- backing services ----------------
+  postgres:
+    <<: *common
+    image: "postgres:17-alpine"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - log_min_duration_statement=200ms
+    ports: ["${POSTGRES_PORT:-5432}:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    <<: *common
+    image: "redis:7.4-alpine"
+    # Loss-tolerant state only (ADR-0003): no persistence.
+    command: ["redis-server", "--appendonly", "no", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    ports: ["${REDIS_PORT:-6379}:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  kafka:
+    <<: *common
+    image: "apache/kafka:4.1.0"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: INTERNAL://:29092,EXTERNAL://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:${KAFKA_PORT:-9092}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"   # topics are created by kafka-init only
+    ports: ["${KAFKA_PORT:-9092}:9092"]
+    volumes:
+      - kafkadata:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server kafka:29092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 15s
+
+  # One-shot: create the topics from docs/architect.md §3 (idempotent).
+  kafka-init:
+    image: "apache/kafka:4.1.0"
+    restart: "no"
+    networks: [backend]
+    depends_on:
+      kafka: { condition: service_healthy }
+    environment:
+      PARTITIONS: ${KAFKA_PARTITIONS:-6}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        for t in events deliveries deliveries.retry.1m deliveries.retry.10m deliveries.retry.1h deliveries.retry.6h deliveries.dlq; do
+          /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists \
+            --topic "$$t" --partitions "$$PARTITIONS" --replication-factor 1
+        done
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --list
+
+  # ---------------- observability ----------------
+  loki:
+    <<: *common
+    image: grafana/loki:3.7.10
+    command: ["-config.file=/etc/loki/loki-config.yaml"]
+    ports: ["3100:3100"]
+    volumes:
+      - ./observability/loki-config.yaml:/etc/loki/loki-config.yaml:ro
+      - lokidata:/loki
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3100/ready | grep -q ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  tempo:
+    <<: *common
+    image: grafana/tempo:2.8.2
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    ports: ["3200:3200"]
+    volumes:
+      - ./observability/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempodata:/var/tempo
+
+  alloy:
+    <<: *common
+    image: grafana/alloy:v1.22.0
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    ports: ["12345:12345", "4317:4317", "4318:4318"]
+    volumes:
+      - ./observability/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloydata:/var/lib/alloy/data
+    depends_on:
+      loki: { condition: service_healthy }
+      tempo: { condition: service_started }
+
+  prometheus:
+    <<: *common
+    image: prom/prometheus:v3.16.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-lifecycle
+    ports: ["9090:9090"]
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/rules:/etc/prometheus/rules:ro
+      - promdata:/prometheus
+
+  grafana:
+    <<: *common
+    image: grafana/grafana:13.3.1
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports: ["3000:3000"]
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    depends_on: [loki, prometheus, tempo]
+
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  pgdata:
+  kafkadata:
+  lokidata:
+  tempodata:
+  promdata:
+  grafanadata:
+  alloydata:

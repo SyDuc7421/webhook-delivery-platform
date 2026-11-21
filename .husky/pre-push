@@ -1,0 +1,2 @@
+echo "→ running make check (skip with --no-verify only in an emergency)"
+make check

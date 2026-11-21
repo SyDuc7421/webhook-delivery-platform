@@ -1,0 +1,46 @@
+# binaries & build
+bin/
+dist/
+*.exe
+*.test
+coverage.out
+coverage.html
+tmp/
+
+# env & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# tooling
+.air.toml.local
+.claude/settings.local.json
+node_modules/
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.shared.json
+
+# data
+*.dump
+
+# terraform (infra/)
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+.terraform.lock.hcl.bak
+
+# web (web/)
+.next/
+out/
+playwright-report/
+test-results/
+
+# local tool caches
+.impeccable/

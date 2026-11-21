@@ -1,0 +1,30 @@
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /backend
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 5
+    groups:
+      go-minor-patch:
+        update-types: [minor, patch]
+    commit-message: { prefix: "build(deps)" }
+
+  - package-ecosystem: docker
+    directory: /backend
+    schedule: { interval: weekly }
+    commit-message: { prefix: "build(deps)" }
+
+  - package-ecosystem: docker-compose
+    directory: /deploy
+    schedule: { interval: monthly }
+    commit-message: { prefix: "build(deps)" }
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: monthly }
+    commit-message: { prefix: "ci(deps)" }
+
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: monthly }
+    commit-message: { prefix: "build(deps)" }

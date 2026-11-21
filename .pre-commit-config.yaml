@@ -1,0 +1,71 @@
+# Fast, language-agnostic checks. Go-specific gates live in Husky pre-push + CI.
+default_install_hook_types: [pre-commit, commit-msg]
+fail_fast: false
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+      - id: check-yaml
+        args: ["--allow-multiple-documents"]
+      - id: check-json
+      - id: check-case-conflict
+      - id: detect-private-key
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+      - id: no-commit-to-branch
+        args: ["--branch", "main"]
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.24.0
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.13.1-beta
+    hooks:
+      - id: hadolint-docker
+        files: (^|/)Dockerfile.*
+
+  - repo: https://github.com/sqlfluff/sqlfluff
+    rev: 3.3.0
+    hooks:
+      - id: sqlfluff-lint
+        files: ^backend/migrations/.*\.sql$
+        args: ["--dialect", "postgres"]
+
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.44.0
+    hooks:
+      - id: markdownlint
+        args: ["--disable", "MD013", "MD033", "--"]
+
+  - repo: local
+    hooks:
+      - id: go-fmt
+        name: gofumpt
+        entry: gofumpt -l -w
+        language: system
+        types: [go]
+      - id: go-imports
+        name: goimports
+        entry: goimports -local github.com/SyDuc7421/webhook-delivery-platform/backend -w
+        language: system
+        types: [go]
+      - id: go-mod-tidy
+        name: go mod tidy
+        entry: bash -c 'cd backend && go mod tidy'
+        language: system
+        files: ^backend/(go\.mod|go\.sum)$
+        pass_filenames: false
+      - id: no-migration-edit
+        name: block edits to applied migrations
+        entry: scripts/check-migrations.sh
+        language: system
+        files: ^backend/migrations/.*\.sql$
+        pass_filenames: true

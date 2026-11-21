@@ -1,0 +1,18 @@
+# Live reload for one process. APP env selects cmd/<APP> (default api): APP=relay make run
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/main ./cmd/${APP:-api}"
+  bin = "./tmp/main"
+  include_ext = ["go", "sql", "yaml", "yml"]
+  exclude_dir = ["tmp", "bin", "test", "node_modules"]
+  exclude_regex = ["_test\\.go"]
+  delay = 300
+  stop_on_error = true
+
+[log]
+  time = true
+
+[misc]
+  clean_on_exit = true

@@ -1,0 +1,14 @@
+apiVersion: 1
+
+# Dashboard JSON lives in deploy/observability/grafana/dashboards/ (NFR-O4).
+providers:
+  - name: webhook-platform
+    orgId: 1
+    folder: "webhook-platform"
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/dashboards
+      foldersFromFilesStructure: false

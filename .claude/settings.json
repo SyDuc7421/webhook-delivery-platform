@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(make:*)",
+      "Bash(go build:*)",
+      "Bash(go test:*)",
+      "Bash(go vet:*)",
+      "Bash(go doc:*)",
+      "Bash(go mod tidy)",
+      "Bash(gofumpt:*)",
+      "Bash(golangci-lint run:*)",
+      "Bash(git status)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(rg:*)",
+      "Bash(docker compose ps)",
+      "Bash(docker compose logs:*)",
+      "Bash(docker compose -f deploy/docker-compose.yml logs:*)",
+      "Bash(docker compose -f deploy/docker-compose.yml ps)",
+      "Read(//**)",
+      "Edit(//**)"
+    ],
+    "deny": [
+      "Bash(git push:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git rebase:*)",
+      "Bash(rm -rf:*)",
+      "Bash(docker compose down -v:*)",
+      "Bash(docker compose -f deploy/docker-compose.yml down -v:*)",
+      "Bash(make migrate-down:*)",
+      "Bash(psql:*production*)",
+      "Bash(curl:*)",
+      "Read(./.env)",
+      "Read(./**/*.pem)",
+      "Read(./**/*secrets*)",
+      "Edit(./.github/workflows/**)",
+      "Edit(./backend/migrations/**/*.up.sql)",
+      "Bash(terraform apply:*)",
+      "Bash(terraform destroy:*)",
+      "Bash(aws:*)"
+    ]
+  },
+  "env": {
+    "GOFLAGS": "-mod=readonly",
+    "CGO_ENABLED": "0"
+  }
+}

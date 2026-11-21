@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>webhook-platform Architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Layout idea: an engineering field guide — one system map, then modules, then step-through flows. */
+:root {
+  --paper: #f3f5f8;
+  --surface: #ffffff;
+  --ink: #142030;
+  --muted: #5a6677;
+  --line: #d3d9e1;
+  --accent: #0a6e7c;
+  --accent-soft: #dff0f2;
+  --store: #e8ecf1;
+  --ok: #1d7a46;
+  --bad: #b42318;
+  --warn: #9a5a00;
+  --font-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0e141b;
+    --surface: #151d27;
+    --ink: #e2e8ef;
+    --muted: #94a1b2;
+    --line: #2a3644;
+    --accent: #52c3d1;
+    --accent-soft: #11323a;
+    --store: #1c2633;
+    --ok: #5ccb8b;
+    --bad: #f27b6f;
+    --warn: #e2a64c;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0e141b;
+  --surface: #151d27;
+  --ink: #e2e8ef;
+  --muted: #94a1b2;
+  --line: #2a3644;
+  --accent: #52c3d1;
+  --accent-soft: #11323a;
+  --store: #1c2633;
+  --ok: #5ccb8b;
+  --bad: #f27b6f;
+  --warn: #e2a64c;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.55;
+}
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+@media (max-width: 480px) { .wrap { padding: 0 16px; } }
+
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; line-height: 1.15; margin: 0; }
+h1 { font-size: 40px; font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: 28px; font-weight: 700; }
+h3 { font-size: 19px; font-weight: 600; }
+p { margin: 0; max-width: 68ch; }
+code, .mono { font-family: var(--font-mono); font-size: 0.88em; }
+code { background: var(--store); padding: 1px 5px; border-radius: 4px; }
+a { color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+/* Header */
+header.top { padding: 40px 0 28px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.top .wrap { display: grid; gap: 14px; }
+.lede { font-size: 18px; color: var(--ink); }
+.meta { font-size: 13px; color: var(--muted); font-family: var(--font-mono); }
+
+nav.toc { position: sticky; top: 0; z-index: 5; background: var(--surface); border-bottom: 1px solid var(--line); }
+nav.toc .wrap { display: flex; gap: 6px; overflow-x: auto; padding-top: 8px; padding-bottom: 8px; }
+nav.toc a {
+  flex: none; text-decoration: none; color: var(--muted); font-size: 14px; font-weight: 500;
+  padding: 6px 10px; border-radius: 6px;
+}
+nav.toc a:hover { color: var(--ink); background: var(--store); }
+
+section { padding: 44px 0 8px; scroll-margin-top: 56px; }
+.section-head { display: grid; gap: 8px; margin-bottom: 22px; }
+.section-head p { color: var(--muted); }
+
+/* Glossary */
+.terms { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin: 0; }
+.terms div { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+.terms dt { font-family: var(--font-mono); font-weight: 600; font-size: 14px; }
+.terms dd { margin: 4px 0 0; font-size: 14px; color: var(--muted); }
+
+/* Figures */
+figure { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+figcaption { font-size: 14px; color: var(--muted); margin-top: 10px; max-width: 80ch; }
+.scroll-x { overflow-x: auto; }
+svg { color: var(--ink); display: block; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 13px; color: var(--muted); margin-top: 12px; }
+.legend span { display: inline-flex; align-items: center; gap: 8px; }
+.sw { width: 26px; height: 14px; border-radius: 3px; display: inline-block; }
+.sw-proc { background: var(--surface); border: 1.5px solid var(--accent); }
+.sw-store { background: var(--store); border: 1px solid var(--line); }
+.sw-ext { border: 1.5px dashed var(--muted); }
+.sw-kafka { height: 0; border-top: 2px solid var(--accent); border-radius: 0; }
+.sw-call { height: 0; border-top: 2px solid var(--ink); border-radius: 0; }
+.sw-ret { height: 0; border-top: 2px dashed var(--muted); border-radius: 0; }
+
+/* SVG classes */
+.b-proc { fill: var(--surface); stroke: var(--accent); stroke-width: 1.5; }
+.b-store { fill: var(--store); stroke: var(--line); stroke-width: 1; }
+.b-ext { fill: var(--surface); stroke: var(--muted); stroke-width: 1.3; stroke-dasharray: 5 4; }
+.b-kafka { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.3; }
+.b-chip { fill: var(--surface); stroke: var(--accent); stroke-width: 1; }
+.b-obs { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 3 3; }
+.ln { stroke: currentColor; stroke-width: 1.4; fill: none; }
+.ln-k { stroke: var(--accent); stroke-width: 1.7; fill: none; }
+.ln-r { stroke: var(--muted); stroke-width: 1.3; stroke-dasharray: 4 3; fill: none; }
+.lifeline { stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 3 4; }
+.m-ink { fill: currentColor; }
+.m-k { fill: var(--accent); }
+.m-r { fill: var(--muted); }
+.t { fill: currentColor; font-family: var(--font-body); font-size: 12px; }
+.t-sm { font-size: 11px; }
+.t-m { font-family: var(--font-mono); }
+.t-b { font-weight: 600; }
+.t-mut { fill: var(--muted); }
+.t-k { fill: var(--accent); }
+.t-bad { fill: var(--bad); }
+.t-ok { fill: var(--ok); }
+.note-box { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1; }
+
+/* Modules */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; display: grid; gap: 10px; align-content: start; }
+.card.proc { border-top: 3px solid var(--accent); }
+.card.store { border-top: 3px solid var(--muted); }
+.card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.card-head h3 { font-family: var(--font-mono); font-size: 17px; }
+.tag { font-size: 12px; font-family: var(--font-mono); color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; }
+.card p { font-size: 15px; }
+.kv { display: grid; grid-template-columns: 96px 1fr; gap: 6px 12px; margin: 0; font-size: 14px; }
+.kv dt { color: var(--muted); font-weight: 500; }
+.kv dd { margin: 0; }
+.sub { margin: 28px 0 14px; }
+
+/* Flows */
+.tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.tabs button {
+  font: inherit; font-size: 14px; font-weight: 500; cursor: pointer;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+  padding: 8px 14px; border-radius: 8px;
+}
+.tabs button:hover { border-color: var(--accent); }
+.tabs button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.flow { display: grid; gap: 16px; }
+@media (min-width: 1020px) { .flow { grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr); align-items: start; } }
+.flow-intro { margin-bottom: 14px; color: var(--muted); }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.steps button {
+  width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer;
+  display: grid; grid-template-columns: 28px 1fr; gap: 10px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
+}
+.steps button:hover, .steps button.active { border-color: var(--accent); background: var(--accent-soft); }
+.steps .n { font-family: var(--font-mono); font-weight: 600; color: var(--accent); font-size: 14px; }
+.steps b { display: block; font-family: var(--font-mono); font-size: 14px; font-weight: 600; }
+.steps span.d { font-size: 14px; color: var(--muted); }
+.callout { border-left: 3px solid var(--accent); background: var(--surface); padding: 10px 14px; border-radius: 0 8px 8px 0; font-size: 14px; margin-top: 10px; }
+.seq .step { cursor: pointer; }
+.seq.has-active .step { opacity: 0.32; }
+.seq.has-active .step.active { opacity: 1; }
+.seq .step.active .ln, .seq .step.active .ln-k, .seq .step.active .ln-r { stroke-width: 2.8; }
+.seq .step.active text { font-weight: 600; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+th { font-weight: 600; color: var(--muted); font-size: 13px; background: var(--store); }
+tr:last-child td { border-bottom: 0; }
+td code { white-space: nowrap; }
+.pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
+.pill.ok { color: var(--ok); }
+.pill.warn { color: var(--warn); }
+.pill.bad { color: var(--bad); }
+
+.two { display: grid; gap: 16px; }
+@media (min-width: 900px) { .two { grid-template-columns: 1fr 1fr; } }
+
+pre { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; overflow-x: auto; font-family: var(--font-mono); font-size: 13.5px; line-height: 1.6; }
+ul.plain { margin: 0; padding-left: 20px; display: grid; gap: 6px; max-width: 80ch; }
+footer { padding: 40px 0 56px; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <h1>webhook-platform architecture</h1>
+    <p class="lede">A developer's map of the platform: which process does what, what each one reads and writes, and how an API request becomes a signed webhook on a customer's server.</p>
+    <p class="meta">Source: docs/architect.md, docs/spec.md, ADR-0001…0007 · design dated 2026-11-18 · status: pre-implementation</p>
+  </div>
+</header>
+
+<nav class="toc" aria-label="Sections">
+  <div class="wrap">
+    <a href="#terms">Terms</a>
+    <a href="#map">System map</a>
+    <a href="#modules">Modules</a>
+    <a href="#flows">Flows</a>
+    <a href="#lifecycle">Message lifecycle</a>
+    <a href="#failures">When things fail</a>
+    <a href="#data">Data &amp; topics</a>
+    <a href="#observability">Observability</a>
+    <a href="#repo">Repo &amp; docs</a>
+  </div>
+</nav>
+
+<main>
+<section id="terms">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Terms used everywhere</h2>
+      <p>The code, the database and the dashboard all use these names.</p>
+    </div>
+    <dl class="terms">
+      <div><dt>org</dt><dd>The SaaS company using the platform (the tenant). Owns API keys, event types and consumers.</dd></div>
+      <div><dt>consumer</dt><dd>One of the org's customers, such as a shop. Identified by the org's own <code>uid</code>.</dd></div>
+      <div><dt>endpoint</dt><dd>A URL owned by a consumer, with a signing secret and the event types it subscribes to.</dd></div>
+      <div><dt>event</dt><dd>One thing that happened: org, consumer, type such as <code>payment.paid</code>, JSON payload.</dd></div>
+      <div><dt>message</dt><dd>One event addressed to one endpoint. This is the unit that gets delivered, retried and replayed.</dd></div>
+      <div><dt>attempt</dt><dd>One HTTP try for a message: request headers, response status and body, latency, error.</dd></div>
+    </dl>
+  </div>
+</section>
+
+<section id="map">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>System map</h2>
+      <p>Postgres sits above the processes because every process writes to it; Kafka sits below because the processes hand work to each other only through Kafka topics.</p>
+    </div>
+    <figure>
+      <div class="scroll-x">
+        <svg viewBox="0 0 1240 490" style="width:100%;min-width:920px;height:auto" role="img" aria-label="System map: org backends and the web dashboard call the api; every process writes to PostgreSQL; relay, dispatcher, delivery-worker and retry-worker pass work through Kafka topics events, deliveries, retry tiers and dlq; the two workers send signed HTTP requests to customer endpoints; Redis serves the api.">
+          <defs>
+            <marker id="mapA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="m-ink"/></marker>
+            <marker id="mapK" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="m-k"/></marker>
+          </defs>
+
+          <!-- PostgreSQL band -->
+          <rect x="240" y="30" width="800" height="62" rx="8" class="b-store"/>
+          <text x="256" y="56" class="t t-b" style="font-size:14px">PostgreSQL</text>
+          <text x="256" y="76" class="t t-sm t-mut">source of truth</text>
+          <text x="400" y="56" class="t t-sm t-m">events (JSONB) · outbox · messages · delivery_attempts (monthly partitions)</text>
+          <text x="400" y="76" class="t t-sm t-m t-mut">orgs · users · api_keys · event_types · consumers · endpoints</text>
+
+          <!-- externals -->
+          <rect x="20" y="176" width="120" height="40" rx="6" class="b-proc"/>
+          <text x="80" y="201" class="t t-m t-b" text-anchor="middle">web</text>
+          <rect x="20" y="226" width="120" height="40" rx="6" class="b-ext"/>
+          <text x="80" y="251" class="t t-m" text-anchor="middle">org backend</text>
+          <line x1="140" y1="196" x2="238" y2="196" class="ln" marker-end="url(#mapA)"/>
+          <text x="190" y="189" class="t t-sm t-mut" text-anchor="middle">REST · JWT</text>
+          <line x1="140" y1="246" x2="238" y2="246" class="ln" marker-end="url(#mapA)"/>
+          <text x="190" y="239" class="t t-sm t-mut" text-anchor="middle">POST /v1/events</text>
+
+          <!-- processes -->
+          <g>
+            <rect x="240" y="176" width="140" height="86" rx="8" class="b-proc"/>
+            <text x="310" y="212" class="t t-m t-b" text-anchor="middle" style="font-size:13px">api</text>
+            <text x="310" y="232" class="t t-sm t-mut" text-anchor="middle">ingest + dashboard API</text>
+          </g>
+          <g>
+            <rect x="405" y="176" width="140" height="86" rx="8" class="b-proc"/>
+            <text x="475" y="212" class="t t-m t-b" text-anchor="middle" style="font-size:13px">relay</text>
+            <text x="475" y="232" class="t t-sm t-mut" text-anchor="middle">outbox → Kafka</text>
+          </g>
+          <g>
+            <rect x="570" y="176" width="140" height="86" rx="8" class="b-proc"/>
+            <text x="640" y="212" class="t t-m t-b" text-anchor="middle" style="font-size:13px">dispatcher</text>
+            <text x="640" y="232" class="t t-sm t-mut" text-anchor="middle">fan-out per endpoint</text>
+          </g>
+          <g>
+            <rect x="735" y="176" width="140" height="86" rx="8" class="b-proc"/>
+            <text x="805" y="212" class="t t-m t-b" text-anchor="middle" style="font-size:13px">delivery-worker</text>
+            <text x="805" y="232" class="t t-sm t-mut" text-anchor="middle">first attempts</text>
+          </g>
+          <g>
+            <rect x="900" y="176" width="140" height="86" rx="8" class="b-proc"/>
+            <text x="970" y="212" class="t t-m t-b" text-anchor="middle" style="font-size:13px">retry-worker</text>
+            <text x="970" y="232" class="t t-sm t-mut" text-anchor="middle">retries + DLQ</text>
+          </g>
+
+          <!-- writes to Postgres -->
+          <line x1="310" y1="176" x2="310" y2="94" class="ln" marker-end="url(#mapA)"/>
+          <text x="316" y="126" class="t t-sm">event + outbox</text>
+          <text x="316" y="140" class="t t-sm t-mut">one transaction</text>
+          <line x1="475" y1="176" x2="475" y2="94" class="ln" marker-end="url(#mapA)"/>
+          <text x="481" y="126" class="t t-sm">drain outbox</text>
+          <text x="481" y="140" class="t t-sm t-mut">SKIP LOCKED</text>
+          <line x1="640" y1="176" x2="640" y2="94" class="ln" marker-end="url(#mapA)"/>
+          <text x="646" y="126" class="t t-sm">messages</text>
+          <text x="646" y="140" class="t t-sm t-mut">1 per endpoint</text>
+          <line x1="805" y1="176" x2="805" y2="94" class="ln" marker-end="url(#mapA)"/>
+          <text x="811" y="126" class="t t-sm">attempts</text>
+          <text x="811" y="140" class="t t-sm t-mut">+ status</text>
+          <line x1="970" y1="176" x2="970" y2="94" class="ln" marker-end="url(#mapA)"/>
+          <text x="976" y="126" class="t t-sm">attempts</text>
+          <text x="976" y="140" class="t t-sm t-mut">+ status</text>
+
+          <!-- customer endpoints -->
+          <rect x="1090" y="140" width="130" height="150" rx="8" class="b-ext"/>
+          <text x="1155" y="200" class="t t-m t-b" text-anchor="middle">customer</text>
+          <text x="1155" y="216" class="t t-m t-b" text-anchor="middle">endpoints</text>
+          <text x="1155" y="236" class="t t-sm t-mut" text-anchor="middle">outside our network</text>
+          <path d="M850 176 V158 H1088" class="ln" marker-end="url(#mapA)"/>
+          <text x="1010" y="152" class="t t-sm">signed POST</text>
+          <line x1="1040" y1="236" x2="1088" y2="236" class="ln" marker-end="url(#mapA)"/>
+          <text x="1064" y="230" class="t t-sm" text-anchor="middle">retry</text>
+
+          <!-- Redis -->
+          <rect x="240" y="330" width="140" height="56" rx="8" class="b-store"/>
+          <text x="310" y="354" class="t t-b" text-anchor="middle" style="font-size:13px">Redis</text>
+          <text x="310" y="373" class="t t-sm t-mut" text-anchor="middle">shared, loss-tolerant</text>
+          <line x1="310" y1="262" x2="310" y2="328" class="ln" marker-end="url(#mapA)"/>
+          <text x="316" y="292" class="t t-sm">rate limit</text>
+          <text x="316" y="306" class="t t-sm t-mut">key cache (M5)</text>
+
+          <!-- Kafka band -->
+          <rect x="405" y="326" width="635" height="80" rx="8" class="b-kafka"/>
+          <text x="417" y="346" class="t t-b t-k" style="font-size:13px">Kafka</text>
+          <rect x="420" y="356" width="235" height="40" rx="5" class="b-chip"/>
+          <text x="537" y="372" class="t t-m t-b t-sm" text-anchor="middle">events</text>
+          <text x="537" y="388" class="t t-m t-sm t-mut" text-anchor="middle">key consumer_uid</text>
+          <rect x="665" y="356" width="135" height="40" rx="5" class="b-chip"/>
+          <text x="732" y="372" class="t t-m t-b t-sm" text-anchor="middle">deliveries</text>
+          <text x="732" y="388" class="t t-m t-sm t-mut" text-anchor="middle">key endpoint_id</text>
+          <rect x="810" y="356" width="175" height="40" rx="5" class="b-chip"/>
+          <text x="897" y="372" class="t t-m t-b t-sm" text-anchor="middle">retry.1m → .10m</text>
+          <text x="897" y="388" class="t t-m t-b t-sm" text-anchor="middle">→ .1h → .6h</text>
+          <rect x="993" y="356" width="42" height="40" rx="5" class="b-chip"/>
+          <text x="1014" y="380" class="t t-m t-b t-sm t-bad" text-anchor="middle">dlq</text>
+
+          <!-- produce (down) / consume (up) -->
+          <line x1="475" y1="262" x2="475" y2="354" class="ln-k" marker-end="url(#mapK)"/>
+          <line x1="615" y1="356" x2="615" y2="264" class="ln-k" marker-end="url(#mapK)"/>
+          <line x1="680" y1="262" x2="680" y2="354" class="ln-k" marker-end="url(#mapK)"/>
+          <line x1="760" y1="356" x2="760" y2="264" class="ln-k" marker-end="url(#mapK)"/>
+          <line x1="845" y1="262" x2="845" y2="354" class="ln-k" marker-end="url(#mapK)"/>
+          <line x1="925" y1="356" x2="925" y2="264" class="ln-k" marker-end="url(#mapK)"/>
+          <line x1="955" y1="262" x2="955" y2="354" class="ln-k" marker-end="url(#mapK)"/>
+          <line x1="1014" y1="262" x2="1014" y2="354" class="ln-k" marker-end="url(#mapK)"/>
+
+          <!-- observability strip -->
+          <rect x="240" y="430" width="800" height="40" rx="6" class="b-obs"/>
+          <text x="640" y="455" class="t t-sm t-mut" text-anchor="middle">every process → traces (Tempo, context carried in Kafka headers) · metrics (Prometheus) · logs (Loki) → Grafana</text>
+        </svg>
+      </div>
+      <div class="legend" aria-hidden="true">
+        <span><i class="sw sw-proc"></i>our process</span>
+        <span><i class="sw sw-store"></i>data store</span>
+        <span><i class="sw sw-ext"></i>outside the platform</span>
+        <span><i class="sw sw-call"></i>HTTP or SQL</span>
+        <span><i class="sw sw-kafka"></i>Kafka: ↓ produce, ↑ consume</span>
+      </div>
+      <figcaption>Each process talks to the next only through a Kafka topic, never by calling it. The dispatcher also reads a Redis subscription cache from M5 (not drawn). Kafka is never touched inside an HTTP request.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="modules">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Modules and what each one owns</h2>
+      <p>Five Go processes and one Next.js app. Whether the Go processes ship as five binaries or one binary with a role flag is an implementation choice; the boundaries below hold either way.</p>
+    </div>
+    <div class="cards">
+      <article class="card proc">
+        <div class="card-head"><h3>api</h3><span class="tag">HTTP · stateless</span></div>
+        <p>The only HTTP entry point. Serves the ingest API for org backends, the REST API for the dashboard, and the built-in test receiver.</p>
+        <dl class="kv">
+          <dt>Auth</dt><dd>API key for <code>/v1/*</code>; JWT access + single-use refresh for the dashboard</dd>
+          <dt>Writes</dt><dd>event + outbox row in one transaction; dashboard CRUD; replay requests via the outbox</dd>
+          <dt>Reads</dt><dd>everything the dashboard shows, always scoped to the caller's org, keyset pagination</dd>
+          <dt>Redis</dt><dd>ingest rate limit per org, refresh tokens, API-key cache (M5)</dd>
+          <dt>Kafka</dt><dd>none</dd>
+          <dt>Scales</dt><dd>horizontally behind the ALB</dd>
+          <dt>On crash</dt><dd>in-flight requests fail; nothing accepted is lost, since <code>202</code> is only sent after COMMIT</dd>
+        </dl>
+      </article>
+      <article class="card proc">
+        <div class="card-head"><h3>relay</h3><span class="tag">poller</span></div>
+        <p>Moves rows from the outbox table into Kafka, so the database write and the Kafka record can never disagree.</p>
+        <dl class="kv">
+          <dt>Loop</dt><dd>lock a batch <code>FOR UPDATE SKIP LOCKED</code> → produce → wait for acks → delete rows → commit</dd>
+          <dt>Produces</dt><dd><code>events</code> (key <code>consumer_uid</code>); replay rows to <code>deliveries</code></dd>
+          <dt>Scales</dt><dd>several relays side by side; SKIP LOCKED keeps them off each other's rows</dd>
+          <dt>On crash</dt><dd>rows unlock and are produced again; downstream dedupes</dd>
+          <dt>Watch</dt><dd>outbox backlog (alert)</dd>
+        </dl>
+      </article>
+      <article class="card proc">
+        <div class="card-head"><h3>dispatcher</h3><span class="tag">consumer group</span></div>
+        <p>Fan-out. Turns one event into one message per enabled endpoint of that consumer that subscribes to the event type.</p>
+        <dl class="kv">
+          <dt>Consumes</dt><dd><code>events</code></dd>
+          <dt>Writes</dt><dd><code>messages</code>, unique <code>(event_id, endpoint_id)</code>, <code>ON CONFLICT DO NOTHING</code></dd>
+          <dt>Produces</dt><dd><code>deliveries</code> (key <code>endpoint_id</code>), then commits its offset</dd>
+          <dt>Redis</dt><dd>subscription cache per consumer (M5)</dd>
+          <dt>Scales</dt><dd>up to the partition count of <code>events</code></dd>
+          <dt>On crash</dt><dd>re-reads the event, finds existing messages, produces them again: a possible duplicate send, never a loss</dd>
+        </dl>
+      </article>
+      <article class="card proc">
+        <div class="card-head"><h3>delivery-worker</h3><span class="tag">consumer group · outbound HTTP</span></div>
+        <p>Makes the first attempt for every message and decides between success and the first retry tier.</p>
+        <dl class="kv">
+          <dt>Consumes</dt><dd><code>deliveries</code></dd>
+          <dt>Sends</dt><dd>signed POST through the SSRF-guarded client: private and metadata addresses refused at dial time, 15 s timeout, no redirects</dd>
+          <dt>Writes</dt><dd><code>delivery_attempts</code>; message → <code>succeeded</code> or <code>failed</code></dd>
+          <dt>Produces</dt><dd><code>deliveries.retry.1m</code> on failure</dd>
+          <dt>Ordering</dt><dd>one endpoint = one partition, so first attempts arrive in order</dd>
+          <dt>On crash</dt><dd>offset not committed → message sent again; receivers dedupe on <code>webhook-id</code></dd>
+        </dl>
+      </article>
+      <article class="card proc">
+        <div class="card-head"><h3>retry-worker</h3><span class="tag">consumer group · outbound HTTP</span></div>
+        <p>Runs the delayed retries and moves exhausted messages to the dead-letter topic.</p>
+        <dl class="kv">
+          <dt>Consumes</dt><dd><code>deliveries.retry.1m</code>, <code>.10m</code>, <code>.1h</code>, <code>.6h</code></dd>
+          <dt>Waits</dt><dd>pauses a partition until record timestamp + tier delay; no busy loop</dd>
+          <dt>Produces</dt><dd>the next tier on failure; <code>deliveries.dlq</code> after <code>.6h</code></dd>
+          <dt>Writes</dt><dd>attempts; message → <code>succeeded</code> or <code>dead</code></dd>
+          <dt>Trade-off</dt><dd>retried messages may arrive after newer ones (ADR-0003)</dd>
+        </dl>
+      </article>
+      <article class="card proc">
+        <div class="card-head"><h3>web</h3><span class="tag">Next.js App Router</span></div>
+        <p>The developer dashboard. Talks only to <code>api</code>; holds no business rules of its own.</p>
+        <dl class="kv">
+          <dt>Screens</dt><dd>API keys, event types, consumers and endpoints, event log, event detail with replay, test receiver controls</dd>
+          <dt>Data</dt><dd>TanStack Query; filters live in the URL; cursor pagination</dd>
+          <dt>Stack</dt><dd>shadcn/ui, Tailwind, next-intl, Vitest, Playwright</dd>
+        </dl>
+      </article>
+    </div>
+
+    <h3 class="sub">Backing services</h3>
+    <div class="cards">
+      <article class="card store">
+        <div class="card-head"><h3>PostgreSQL</h3><span class="tag">durable</span></div>
+        <p>Source of truth for configuration, events, message status and attempts. Also the outbox that feeds Kafka.</p>
+      </article>
+      <article class="card store">
+        <div class="card-head"><h3>Kafka</h3><span class="tag">durable · KRaft</span></div>
+        <p>The delivery pipeline: ordering per key, consumer groups for scale, offsets for redelivery. Self-managed on EC2 in AWS (ADR-0005).</p>
+      </article>
+      <article class="card store">
+        <div class="card-head"><h3>Redis</h3><span class="tag">loss-tolerant</span></div>
+        <p>Only state that is shared between instances and safe to lose. If it is down, rate limits fail open and caches fall back to Postgres.</p>
+      </article>
+      <article class="card store">
+        <div class="card-head"><h3>Prometheus · Loki · Tempo · Grafana</h3><span class="tag">observability</span></div>
+        <p>Metrics, logs and traces with dashboards and alerts provisioned from <code>/deploy/grafana</code>. Same setup locally and on AWS.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section id="flows">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Flows, step by step</h2>
+      <p>Pick a flow, then point at a step in the list or the diagram to highlight it.</p>
+    </div>
+    <div class="tabs" role="tablist" aria-label="Flows" id="flow-tabs"></div>
+    <p class="flow-intro" id="flow-intro"></p>
+    <div class="flow">
+      <figure>
+        <div class="scroll-x" id="flow-diagram"></div>
+        <div class="legend" aria-hidden="true">
+          <span><i class="sw sw-call"></i>call or write</span>
+          <span><i class="sw sw-kafka"></i>Kafka produce / consume</span>
+          <span><i class="sw sw-ret"></i>response</span>
+        </div>
+        <figcaption id="flow-caption"></figcaption>
+      </figure>
+      <div>
+        <ol class="steps" id="flow-steps"></ol>
+        <p class="callout" id="flow-note"></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="lifecycle">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Message lifecycle</h2>
+      <p>The status a developer sees in the dashboard is the <code>messages.status</code> column. These are the only transitions.</p>
+    </div>
+    <figure>
+      <div class="scroll-x">
+        <svg viewBox="0 0 760 270" style="width:100%;min-width:620px;max-width:900px;height:auto" role="img" aria-label="Message states: pending goes to succeeded on a 2xx or to failed on a non-2xx or timeout; failed moves through retry tiers and ends as succeeded on a 2xx or dead after the 6 hour tier; replay sets any message back to pending.">
+          <defs>
+            <marker id="lcA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="m-ink"/></marker>
+            <marker id="lcR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="m-r"/></marker>
+          </defs>
+          <rect x="30" y="100" width="130" height="48" rx="24" class="b-proc"/>
+          <text x="95" y="129" class="t t-m t-b" text-anchor="middle">pending</text>
+          <rect x="320" y="20" width="150" height="48" rx="24" class="b-store"/>
+          <text x="395" y="49" class="t t-m t-b t-ok" text-anchor="middle">succeeded</text>
+          <rect x="320" y="150" width="150" height="48" rx="24" class="b-store"/>
+          <text x="395" y="179" class="t t-m t-b" text-anchor="middle" style="fill:var(--warn)">failed</text>
+          <rect x="590" y="150" width="130" height="48" rx="24" class="b-store"/>
+          <text x="655" y="179" class="t t-m t-b t-bad" text-anchor="middle">dead</text>
+
+          <path d="M160 114 L318 52" class="ln" marker-end="url(#lcA)"/>
+          <text x="226" y="70" class="t t-sm">2xx</text>
+          <path d="M160 134 L318 168" class="ln" marker-end="url(#lcA)"/>
+          <text x="196" y="170" class="t t-sm">non-2xx · timeout</text>
+          <path d="M395 150 L395 70" class="ln" marker-end="url(#lcA)"/>
+          <text x="403" y="114" class="t t-sm">2xx on a retry</text>
+          <path d="M470 174 L588 174" class="ln" marker-end="url(#lcA)"/>
+          <text x="529" y="166" class="t t-sm" text-anchor="middle">.6h fails</text>
+          <path d="M440 198 C 460 232, 330 232, 352 200" class="ln" marker-end="url(#lcA)"/>
+          <text x="395" y="244" class="t t-sm t-mut" text-anchor="middle">next tier: 1m → 10m → 1h → 6h</text>
+          <path d="M655 198 V 258 H 95 V 150" class="ln-r" marker-end="url(#lcR)"/>
+          <text x="520" y="252" class="t t-sm t-mut">replay (from any state)</text>
+        </svg>
+      </div>
+      <figcaption>Replay is allowed from <code>succeeded</code>, <code>failed</code> and <code>dead</code>. It keeps the same <code>webhook-id</code> and adds a new attempt.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="failures">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>When a piece fails</h2>
+      <p>The design target is at-least-once delivery: a failure may cause a duplicate send, never a lost message.</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>What fails</th><th>What users notice</th><th>Why nothing is lost</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td>Kafka</td><td>Ingest still returns <code>202</code>; deliveries pause</td><td>Accepted events wait in the outbox; the relay drains it when Kafka is back</td><td><span class="pill warn">delayed</span></td></tr>
+          <tr><td>PostgreSQL</td><td>Ingest returns <code>503</code>; workers stop</td><td>Workers cannot record attempts, so they do not commit offsets and resume from the same place</td><td><span class="pill bad">unavailable</span></td></tr>
+          <tr><td>Redis</td><td>Rate limits stop limiting; dashboard users may need to log in again</td><td>Redis holds no pipeline state; caches fall back to Postgres</td><td><span class="pill ok">degraded</span></td></tr>
+          <tr><td>relay crashes after producing</td><td>Nothing visible</td><td>Rows unlock and are produced again; the dispatcher's unique key stops duplicate messages</td><td><span class="pill ok">no impact</span></td></tr>
+          <tr><td>Worker crashes mid-batch</td><td>A receiver may get the same webhook twice</td><td>Uncommitted records go to another group member; receivers dedupe on <code>webhook-id</code></td><td><span class="pill warn">duplicate possible</span></td></tr>
+          <tr><td>One customer endpoint is down</td><td>That endpoint's messages move through the retry tiers</td><td>A failed message leaves the partition; each first attempt is capped by the 15 s timeout</td><td><span class="pill ok">isolated</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="data">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Data and topics</h2>
+      <p>Where each piece of state lives, and its key or constraint.</p>
+    </div>
+    <div class="two">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>PostgreSQL table</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td><code>orgs</code>, <code>users</code>, <code>api_keys</code></td><td>keys stored as hash + visible prefix only</td></tr>
+            <tr><td><code>event_types</code>, <code>consumers</code>, <code>endpoints</code></td><td>unique <code>(org_id, name)</code> / <code>(org_id, uid)</code></td></tr>
+            <tr><td><code>events</code></td><td><code>payload JSONB</code> + GIN index; unique <code>(org_id, idempotency_key)</code></td></tr>
+            <tr><td><code>outbox</code></td><td>rows for new events and replays; drained by relay</td></tr>
+            <tr><td><code>messages</code></td><td>event × endpoint; unique <code>(event_id, endpoint_id)</code>; status, attempt count</td></tr>
+            <tr><td><code>delivery_attempts</code></td><td>declaratively partitioned by month; retention drops old partitions</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Kafka topic</th><th>Key</th><th>Produced by</th><th>Consumed by</th></tr></thead>
+          <tbody>
+            <tr><td><code>events</code></td><td><code>consumer_uid</code></td><td>relay</td><td>dispatcher</td></tr>
+            <tr><td><code>deliveries</code></td><td><code>endpoint_id</code></td><td>dispatcher, relay (replay)</td><td>delivery-worker</td></tr>
+            <tr><td><code>deliveries.retry.*</code></td><td><code>endpoint_id</code></td><td>delivery-worker, retry-worker</td><td>retry-worker</td></tr>
+            <tr><td><code>deliveries.dlq</code></td><td><code>endpoint_id</code></td><td>retry-worker</td><td>none; status lives in Postgres</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <h3 class="sub">Redis keys</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Key</th><th>Use</th><th>Pattern</th><th>From</th></tr></thead>
+        <tbody>
+          <tr><td><code>rl:org:{org_id}</code></td><td>ingest rate limit</td><td>window counter shared by all api instances; fails open</td><td>M1</td></tr>
+          <tr><td><code>rt:{token}</code></td><td>refresh tokens</td><td>single use via <code>GETDEL</code></td><td>M1</td></tr>
+          <tr><td><code>ak:{key_hash}</code></td><td>API key → org</td><td>cache-aside, TTL ≤ 60 s, deleted on revoke</td><td>M5</td></tr>
+          <tr><td><code>subs:{consumer_id}</code></td><td>subscribed endpoints</td><td>cache-aside, TTL ≤ 60 s, deleted on endpoint writes</td><td>M5</td></tr>
+          <tr><td><code>rl:ep:{endpoint_id}</code>, <code>cb:{endpoint_id}</code></td><td>send rate limit, circuit breaker</td><td>shared by all workers</td><td>stretch</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="observability">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Observability</h2>
+      <p>One trace follows an event from the API request to the outbound HTTP call. The trace context rides in Kafka record headers between processes.</p>
+    </div>
+    <div class="two">
+      <div class="card">
+        <h3>Metrics to know</h3>
+        <ul class="plain">
+          <li><b>outbox backlog</b>: rows waiting for the relay; grows when Kafka is down</li>
+          <li><b>consumer lag</b> per group: is each stage keeping up</li>
+          <li><b>delivery success rate</b> and attempt latency p50 / p95 / p99 per endpoint</li>
+          <li><b>retry-tier depth</b> and <b>DLQ count</b></li>
+          <li><b>ingest rate</b> per org and <code>429</code> count</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Conventions</h3>
+        <ul class="plain">
+          <li>Logs are structured JSON (<code>log/slog</code>) and always carry <code>trace_id</code>.</li>
+          <li>API keys and signing secrets never appear in logs or spans.</li>
+          <li>Dashboards and alert rules live as files in <code>/deploy/grafana</code>; change them by PR, not in the UI.</li>
+          <li>Alerts start with consumer lag above threshold and a spike in failure rate.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="repo">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Repository and where to read next</h2>
+    </div>
+    <div class="two">
+<pre>/backend    Go module: cmd/*, internal/*, migrations
+/web        Next.js dashboard
+/infra      Terraform (network, data, kafka, compute, observability)
+/deploy     docker-compose, Grafana/Prometheus/Loki/Tempo config
+/loadtest   k6 scripts
+/docs       spec, architecture, deploy, testing, roadmap, ADRs, results</pre>
+      <div class="card">
+        <h3>Docs</h3>
+        <ul class="plain">
+          <li><code>docs/spec.md</code>: requirements with IDs (FR-*, NFR-*)</li>
+          <li><code>docs/architect.md</code>: the text version of this page</li>
+          <li><code>docs/deploy.md</code>: local compose, AWS, CI/CD</li>
+          <li><code>docs/adr/0002</code> outbox · <code>0003</code> retry tiers · <code>0005</code> Kafka on EC2 · <code>0007</code> caching after measuring</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">webhook-platform · architecture overview for developers · reflects the design as of 2026-11-18</div>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  var FLOWS = [
+    {
+      id: "ingest",
+      tab: "1 · Ingest a request",
+      intro: "An org's backend reports that something happened. The api stores it durably and answers before any delivery work starts.",
+      caption: "Ingest touches only Redis and PostgreSQL. The response is sent after COMMIT.",
+      parts: [
+        { id: "org", label: "org backend", kind: "ext" },
+        { id: "api", label: "api", kind: "proc" },
+        { id: "redis", label: "Redis", kind: "store" },
+        { id: "pg", label: "PostgreSQL", kind: "store" }
+      ],
+      steps: [
+        { f: "org", t: "api", k: "call", l: "POST /v1/events", d: "Bearer API key, optional Idempotency-Key header, body {consumer_uid, type, payload}." },
+        { f: "api", t: "pg", k: "call", l: "look up key hash", d: "Hash the presented key and find its org. From M5 this read goes through the Redis entry ak:{hash}, deleted on revoke." },
+        { f: "api", t: "redis", k: "call", l: "rate limit check", d: "Counter rl:org:{id} shared by every api instance. Over the limit: 429 with Retry-After. If Redis is down the check fails open and is logged." },
+        { f: "api", t: "api", k: "self", l: "validate", d: "JSON, at most 256 KB, consumer and event type exist in this org." },
+        { f: "api", t: "pg", k: "call", l: "INSERT event + outbox", d: "One transaction: INSERT events … ON CONFLICT (org_id, idempotency_key) DO NOTHING, then INSERT outbox only if the event is new. COMMIT." },
+        { f: "api", t: "org", k: "ret", l: "202 {id}", d: "Sent only after COMMIT, so an accepted event is durable. A repeated Idempotency-Key returns the original event id." }
+      ],
+      note: "Kafka is not touched in this request. If Kafka is down, accepted events wait in the outbox (ADR-0002)."
+    },
+    {
+      id: "deliver",
+      tab: "2 · Fan-out and delivery",
+      intro: "The happy path from an outbox row to a 2xx from the customer's endpoint.",
+      caption: "Three hand-offs through Kafka: relay → dispatcher → delivery-worker. Each stage commits its offset only after its own work is recorded.",
+      parts: [
+        { id: "pg", label: "PostgreSQL", kind: "store" },
+        { id: "relay", label: "relay", kind: "proc" },
+        { id: "kafka", label: "Kafka", kind: "kafka" },
+        { id: "disp", label: "dispatcher", kind: "proc" },
+        { id: "dw", label: "delivery-worker", kind: "proc" },
+        { id: "ep", label: "endpoint", kind: "ext" }
+      ],
+      steps: [
+        { f: "relay", t: "pg", k: "call", l: "lock outbox batch", d: "SELECT … FROM outbox ORDER BY id LIMIT n FOR UPDATE SKIP LOCKED. Several relays can run without taking the same rows." },
+        { f: "relay", t: "kafka", k: "kafka", l: "produce events", d: "Topic events, key consumer_uid, so one consumer's events stay in order. Wait for broker acks." },
+        { f: "relay", t: "pg", k: "call", l: "DELETE rows, COMMIT", d: "Only after the acks. A crash before this point produces the batch again; the dispatcher dedupes." },
+        { f: "kafka", t: "disp", k: "kafka", l: "consume events", d: "Consumer group dispatcher." },
+        { f: "disp", t: "pg", k: "call", l: "INSERT messages", d: "Find enabled endpoints of the consumer subscribed to the type (Redis cache from M5). One row per endpoint, unique (event_id, endpoint_id), ON CONFLICT DO NOTHING." },
+        { f: "disp", t: "kafka", k: "kafka", l: "produce deliveries", d: "Key endpoint_id, so all first attempts to one endpoint share a partition. Then commit the events offset." },
+        { f: "kafka", t: "dw", k: "kafka", l: "consume deliveries", d: "Consumer group delivery-worker." },
+        { f: "dw", t: "ep", k: "call", l: "signed POST", d: "Headers webhook-id, webhook-timestamp, webhook-signature (HMAC-SHA256). SSRF-guarded client: private and metadata addresses refused at dial time, 15 s timeout, no redirects." },
+        { f: "ep", t: "dw", k: "ret", l: "2xx", d: "Any 2xx status counts as success." },
+        { f: "dw", t: "pg", k: "call", l: "attempt + succeeded", d: "INSERT delivery_attempts (monthly partition) and set the message to succeeded." },
+        { f: "dw", t: "kafka", k: "kafka", l: "commit offset", d: "Only now. A crash before this means the message is sent again: at-least-once. Receivers dedupe on webhook-id." }
+      ],
+      note: "Every stage follows the same rule: record the work, then commit the offset. That rule is what makes delivery at-least-once."
+    },
+    {
+      id: "retry",
+      tab: "3 · Failure and retry",
+      intro: "The endpoint answers 500. The message leaves the main partition and climbs the retry tiers until it succeeds or is declared dead.",
+      caption: "Steps 5 to 10 repeat on each tier: 1 min, 10 min, 1 h, 6 h.",
+      parts: [
+        { id: "kafka", label: "Kafka", kind: "kafka" },
+        { id: "dw", label: "delivery-worker", kind: "proc" },
+        { id: "rw", label: "retry-worker", kind: "proc" },
+        { id: "pg", label: "PostgreSQL", kind: "store" },
+        { id: "ep", label: "endpoint", kind: "ext" }
+      ],
+      steps: [
+        { f: "dw", t: "ep", k: "call", l: "POST", d: "First attempt, as in the delivery flow." },
+        { f: "ep", t: "dw", k: "ret", l: "500 / timeout", d: "Any non-2xx status, a connection error, or no answer within 15 s." },
+        { f: "dw", t: "pg", k: "call", l: "attempt + failed", d: "INSERT delivery_attempts with the status code or error; message status failed, attempt 1." },
+        { f: "dw", t: "kafka", k: "kafka", l: "produce retry.1m", d: "Then commit the deliveries offset. The partition moves on, so one failing endpoint does not hold up the others (ADR-0003)." },
+        { f: "kafka", t: "rw", k: "kafka", l: "consume retry.1m", d: "Consumer group retry-worker reads every tier topic." },
+        { f: "rw", t: "rw", k: "self", l: "wait until due", d: "Pause the partition until record timestamp + 1 min, then resume. No busy loop." },
+        { f: "rw", t: "ep", k: "call", l: "POST (same id)", d: "Same webhook-id so the receiver can dedupe; fresh timestamp and signature." },
+        { f: "ep", t: "rw", k: "ret", l: "500 again", d: "Still failing." },
+        { f: "rw", t: "pg", k: "call", l: "attempt 2", d: "Record the attempt; the message stays failed." },
+        { f: "rw", t: "kafka", k: "kafka", l: "produce next tier", d: "retry.10m, then .1h, then .6h." },
+        { f: "rw", t: "kafka", k: "kafka", l: "produce dlq", d: "After the .6h attempt fails, the record goes to deliveries.dlq." },
+        { f: "rw", t: "pg", k: "call", l: "message = dead", d: "The dashboard shows it as dead. A developer can still replay it." }
+      ],
+      note: "A 2xx on any retry sets the message to succeeded and the chain stops. Retried messages may arrive after newer ones; first attempts stay in order."
+    },
+    {
+      id: "replay",
+      tab: "4 · Replay from the dashboard",
+      intro: "A developer fixed their server and wants a dead message sent again.",
+      caption: "Replay reuses the outbox, so the status change and the Kafka record cannot drift apart.",
+      parts: [
+        { id: "dev", label: "developer", kind: "ext" },
+        { id: "web", label: "web", kind: "proc" },
+        { id: "api", label: "api", kind: "proc" },
+        { id: "pg", label: "PostgreSQL", kind: "store" },
+        { id: "relay", label: "relay", kind: "proc" },
+        { id: "kafka", label: "Kafka", kind: "kafka" },
+        { id: "dw", label: "delivery-worker", kind: "proc" }
+      ],
+      steps: [
+        { f: "dev", t: "web", k: "call", l: "click Replay", d: "On a message in the event detail page." },
+        { f: "web", t: "api", k: "call", l: "POST …/replay", d: "POST /api/messages/{id}/replay with the dashboard JWT." },
+        { f: "api", t: "pg", k: "call", l: "check org, enqueue", d: "Verify the message belongs to the caller's org. In one transaction set it to pending and INSERT an outbox row for the replay." },
+        { f: "api", t: "web", k: "ret", l: "202 Accepted", d: "The dashboard shows the message as pending." },
+        { f: "relay", t: "pg", k: "call", l: "lock outbox batch", d: "The relay picks replay rows up like event rows." },
+        { f: "relay", t: "kafka", k: "kafka", l: "produce deliveries", d: "Straight to deliveries with key endpoint_id: no fan-out needed." },
+        { f: "kafka", t: "dw", k: "kafka", l: "consume", d: "From here it is the normal delivery path: a new attempt with the same webhook-id." }
+      ],
+      note: "Routing replay through the outbox follows the same reasoning as ingest (ADR-0002)."
+    },
+    {
+      id: "read",
+      tab: "5 · Dashboard read",
+      intro: "Opening the event log with filters. Every list in the dashboard works this way.",
+      caption: "Cursor (keyset) pagination everywhere; no OFFSET.",
+      parts: [
+        { id: "dev", label: "developer", kind: "ext" },
+        { id: "web", label: "web", kind: "proc" },
+        { id: "api", label: "api", kind: "proc" },
+        { id: "pg", label: "PostgreSQL", kind: "store" }
+      ],
+      steps: [
+        { f: "dev", t: "web", k: "call", l: "open event log", d: "For example /events?type=payment.paid&status=failed. Filters live in the URL, so a view can be shared." },
+        { f: "web", t: "api", k: "call", l: "GET /api/events", d: "Filters plus cursor as query params; dashboard JWT. TanStack Query caches each page." },
+        { f: "api", t: "pg", k: "call", l: "keyset query", d: "WHERE org_id = $org AND filters AND (created_at, id) < cursor ORDER BY created_at DESC, id DESC LIMIT 50. Profiled with EXPLAIN ANALYZE." },
+        { f: "pg", t: "api", k: "ret", l: "rows", d: "At most 50 rows." },
+        { f: "api", t: "web", k: "ret", l: "{items, next_cursor}", d: "next_cursor encodes the last (created_at, id)." }
+      ],
+      note: "Every query is scoped to the caller's org in the api. The web app never decides what a user may see."
+    }
+  ];
+
+  var NS = "http://www.w3.org/2000/svg";
+  var tabs = document.getElementById("flow-tabs");
+  var diagram = document.getElementById("flow-diagram");
+  var list = document.getElementById("flow-steps");
+  var intro = document.getElementById("flow-intro");
+  var caption = document.getElementById("flow-caption");
+  var note = document.getElementById("flow-note");
+  var pinned = -1;
+
+  function el(name, attrs, text) {
+    var n = document.createElementNS(NS, name);
+    for (var k in attrs) { n.setAttribute(k, attrs[k]); }
+    if (text != null) { n.textContent = text; }
+    return n;
+  }
+
+  function boxClass(kind) {
+    return { proc: "b-proc", store: "b-store", ext: "b-ext", kafka: "b-kafka" }[kind] || "b-proc";
+  }
+
+  function renderDiagram(flow) {
+    var laneW = 150, left = 16, top = 62, rowH = 44;
+    var n = flow.parts.length;
+    var W = left * 2 + n * laneW;
+    var H = top + flow.steps.length * rowH + 18;
+    var idx = {};
+    flow.parts.forEach(function (p, i) { idx[p.id] = i; });
+    function x(id) { return left + laneW * idx[id] + laneW / 2; }
+
+    var svg = el("svg", {
+      viewBox: "0 0 " + W + " " + H,
+      role: "img",
+      "aria-label": flow.tab.replace(/^\d+ · /, "") + ": " + flow.steps.length + " steps between " + flow.parts.map(function (p) { return p.label; }).join(", "),
+      "class": "seq"
+    });
+    svg.style.width = "100%";
+    svg.style.minWidth = Math.round(W * 0.78) + "px";
+    svg.style.height = "auto";
+
+    var defs = el("defs", {});
+    [["sqA", "m-ink"], ["sqK", "m-k"], ["sqR", "m-r"]].forEach(function (m) {
+      var mk = el("marker", { id: m[0], viewBox: "0 0 10 10", refX: "9", refY: "5", markerWidth: "7", markerHeight: "7", orient: "auto-start-reverse" });
+      mk.appendChild(el("path", { d: "M0 0 L10 5 L0 10 z", "class": m[1] }));
+      defs.appendChild(mk);
+    });
+    svg.appendChild(defs);
+
+    flow.parts.forEach(function (p) {
+      var cx = x(p.id);
+      svg.appendChild(el("line", { x1: cx, y1: 44, x2: cx, y2: H - 6, "class": "lifeline" }));
+      svg.appendChild(el("rect", { x: cx - 64, y: 8, width: 128, height: 34, rx: 6, "class": boxClass(p.kind) }));
+      svg.appendChild(el("text", { x: cx, y: 30, "class": "t t-m t-b" + (p.kind === "kafka" ? " t-k" : ""), "text-anchor": "middle" }, p.label));
+    });
+
+    flow.steps.forEach(function (s, i) {
+      var y = top + i * rowH + 18;
+      var g = el("g", { "class": "step", "data-i": i });
+      var num = (i + 1) + "  ";
+      if (s.k === "self") {
+        var cx = x(s.f);
+        g.appendChild(el("rect", { x: cx - 66, y: y - 15, width: 132, height: 26, rx: 5, "class": "note-box" }));
+        var tt = el("text", { x: cx, y: y + 3, "class": "t t-sm", "text-anchor": "middle" });
+        var b = el("tspan", { "class": "t-b t-k" }, num);
+        tt.appendChild(b);
+        tt.appendChild(document.createTextNode(s.l));
+        g.appendChild(tt);
+      } else {
+        var x1 = x(s.f), x2 = x(s.t);
+        var dir = x2 > x1 ? 1 : -1;
+        var cls = s.k === "kafka" ? "ln-k" : (s.k === "ret" ? "ln-r" : "ln");
+        var mk = s.k === "kafka" ? "sqK" : (s.k === "ret" ? "sqR" : "sqA");
+        g.appendChild(el("line", { x1: x1 + dir * 2, y1: y, x2: x2 - dir * 3, y2: y, "class": cls, "marker-end": "url(#" + mk + ")" }));
+        g.appendChild(el("rect", { x: Math.min(x1, x2), y: y - 20, width: Math.abs(x2 - x1), height: 26, fill: "transparent" }));
+        var t = el("text", { x: (x1 + x2) / 2, y: y - 6, "class": "t t-sm" + (s.k === "ret" ? " t-mut" : ""), "text-anchor": "middle" });
+        var nb = el("tspan", { "class": "t-b t-k" }, num);
+        t.appendChild(nb);
+        t.appendChild(document.createTextNode(s.l));
+        g.appendChild(t);
+      }
+      g.addEventListener("mouseenter", function () { if (pinned < 0) { highlight(i); } });
+      g.addEventListener("mouseleave", function () { if (pinned < 0) { highlight(-1); } });
+      g.addEventListener("click", function () { togglePin(i); });
+      svg.appendChild(g);
+    });
+
+    diagram.innerHTML = "";
+    diagram.appendChild(svg);
+  }
+
+  function renderSteps(flow) {
+    list.innerHTML = "";
+    flow.steps.forEach(function (s, i) {
+      var li = document.createElement("li");
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.id = "step-" + flow.id + "-" + (i + 1);
+      btn.setAttribute("data-i", i);
+      var nEl = document.createElement("span");
+      nEl.className = "n";
+      nEl.textContent = String(i + 1);
+      var body = document.createElement("span");
+      var head = document.createElement("b");
+      var from = flow.parts.filter(function (p) { return p.id === s.f; })[0].label;
+      var to = flow.parts.filter(function (p) { return p.id === s.t; })[0].label;
+      head.textContent = s.k === "self" ? from + ": " + s.l : from + " → " + to + ": " + s.l;
+      var d = document.createElement("span");
+      d.className = "d";
+      d.textContent = s.d;
+      body.appendChild(head);
+      body.appendChild(d);
+      btn.appendChild(nEl);
+      btn.appendChild(body);
+      btn.addEventListener("mouseenter", function () { if (pinned < 0) { highlight(i); } });
+      btn.addEventListener("mouseleave", function () { if (pinned < 0) { highlight(-1); } });
+      btn.addEventListener("focus", function () { if (pinned < 0) { highlight(i); } });
+      btn.addEventListener("blur", function () { if (pinned < 0) { highlight(-1); } });
+      btn.addEventListener("click", function () { togglePin(i); });
+      li.appendChild(btn);
+      list.appendChild(li);
+    });
+  }
+
+  function highlight(i) {
+    var svg = diagram.querySelector("svg");
+    if (!svg) { return; }
+    svg.classList.toggle("has-active", i >= 0);
+    svg.querySelectorAll(".step").forEach(function (g) {
+      g.classList.toggle("active", Number(g.getAttribute("data-i")) === i);
+    });
+    list.querySelectorAll("button").forEach(function (b) {
+      var on = Number(b.getAttribute("data-i")) === i;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+  }
+
+  function togglePin(i) {
+    pinned = pinned === i ? -1 : i;
+    highlight(pinned);
+  }
+
+  function show(id) {
+    var flow = FLOWS.filter(function (f) { return f.id === id; })[0] || FLOWS[0];
+    pinned = -1;
+    intro.textContent = flow.intro;
+    caption.textContent = flow.caption;
+    note.textContent = flow.note;
+    renderDiagram(flow);
+    renderSteps(flow);
+    tabs.querySelectorAll("button").forEach(function (b) {
+      var on = b.getAttribute("data-id") === flow.id;
+      b.setAttribute("aria-selected", on ? "true" : "false");
+      b.tabIndex = on ? 0 : -1;
+    });
+  }
+
+  FLOWS.forEach(function (f, i) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.id = "tab-" + f.id;
+    b.setAttribute("role", "tab");
+    b.setAttribute("data-id", f.id);
+    b.setAttribute("aria-controls", "flow-diagram");
+    b.textContent = f.tab;
+    b.addEventListener("click", function () { show(f.id); });
+    b.addEventListener("keydown", function (e) {
+      if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") { return; }
+      var next = (i + (e.key === "ArrowRight" ? 1 : -1) + FLOWS.length) % FLOWS.length;
+      show(FLOWS[next].id);
+      document.getElementById("tab-" + FLOWS[next].id).focus();
+    });
+    tabs.appendChild(b);
+  });
+
+  show("ingest");
+})();
+</script>
+</body>
+</html>

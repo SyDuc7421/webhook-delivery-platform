@@ -1,0 +1,9 @@
+.git
+bin
+tmp
+dist
+test
+*.md
+.env
+.env.*
+coverage.*
