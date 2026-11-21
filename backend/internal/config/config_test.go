@@ -13,11 +13,16 @@ func env(m map[string]string) lookupFunc {
 	}
 }
 
+// testEncryptionKey is base64 of 32 zero bytes — a dummy, valid AES-256 key.
+const testEncryptionKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+
 func minimal() map[string]string {
 	return map[string]string{
-		"POSTGRES_USER":     "webhook",
-		"POSTGRES_PASSWORD": "secret",
-		"POSTGRES_DB":       "webhook_platform",
+		"POSTGRES_USER":          "webhook",
+		"POSTGRES_PASSWORD":      "secret",
+		"POSTGRES_DB":            "webhook_platform",
+		"JWT_SECRET":             "test-jwt-secret-at-least-32-bytes-long",
+		"SECRETS_ENCRYPTION_KEY": testEncryptionKey,
 	}
 }
 
@@ -47,7 +52,58 @@ func TestLoad(t *testing.T) {
 				if len(c.Kafka.Brokers) != 1 || c.Kafka.Brokers[0] != "localhost:9092" {
 					t.Errorf("brokers = %v", c.Kafka.Brokers)
 				}
+				if c.Auth.AccessTTL != 15*time.Minute || c.Auth.RefreshTTL != 168*time.Hour {
+					t.Errorf("auth ttls = %v %v", c.Auth.AccessTTL, c.Auth.RefreshTTL)
+				}
+				if string(c.Auth.JWTSecret) != "test-jwt-secret-at-least-32-bytes-long" {
+					t.Errorf("jwt secret not loaded")
+				}
+				if len(c.Secrets.EncryptionKey) != 32 {
+					t.Errorf("encryption key len = %d, want 32", len(c.Secrets.EncryptionKey))
+				}
+				if c.Ingest.MaxPayloadBytes != 262144 || c.Ingest.RateLimitPerMin != 600 {
+					t.Errorf("ingest defaults = %+v", c.Ingest)
+				}
+				if c.Outbox.PollInterval != 200*time.Millisecond || c.Outbox.BatchSize != 100 {
+					t.Errorf("outbox defaults = %+v", c.Outbox)
+				}
 			},
+		},
+		{
+			name: "short jwt secret",
+			env: func() map[string]string {
+				m := minimal()
+				m["JWT_SECRET"] = "too-short"
+				return m
+			},
+			wantErr: []string{"JWT_SECRET must be at least 32 bytes"},
+		},
+		{
+			name: "encryption key not base64",
+			env: func() map[string]string {
+				m := minimal()
+				m["SECRETS_ENCRYPTION_KEY"] = "not base64!!"
+				return m
+			},
+			wantErr: []string{"SECRETS_ENCRYPTION_KEY must be 32 bytes base64"},
+		},
+		{
+			name: "encryption key wrong length",
+			env: func() map[string]string {
+				m := minimal()
+				m["SECRETS_ENCRYPTION_KEY"] = "AAAAAAAAAAAAAAAAAAAAAA=="
+				return m
+			},
+			wantErr: []string{"SECRETS_ENCRYPTION_KEY must be 32 bytes base64"},
+		},
+		{
+			name: "zero outbox batch",
+			env: func() map[string]string {
+				m := minimal()
+				m["OUTBOX_BATCH_SIZE"] = "0"
+				return m
+			},
+			wantErr: []string{"OUTBOX_BATCH_SIZE must be positive"},
 		},
 		{
 			name: "overrides and broker list",
@@ -75,7 +131,7 @@ func TestLoad(t *testing.T) {
 		{
 			name:    "missing required values are all reported",
 			env:     func() map[string]string { return map[string]string{} },
-			wantErr: []string{"POSTGRES_USER is required", "POSTGRES_PASSWORD is required", "POSTGRES_DB is required"},
+			wantErr: []string{"POSTGRES_USER is required", "POSTGRES_PASSWORD is required", "POSTGRES_DB is required", "JWT_SECRET is required", "SECRETS_ENCRYPTION_KEY is required"},
 		},
 		{
 			name: "malformed values",

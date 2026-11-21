@@ -125,6 +125,12 @@ func buildConfig(pgDSN, redisURL string, brokers []string) (config.Config, error
 		},
 		Redis: config.Redis{Addr: ru.Host, PoolSize: 5},
 		Kafka: config.Kafka{Brokers: brokers},
+		Auth: config.Auth{
+			JWTSecret: []byte("integration-test-jwt-secret-32-bytes!"), AccessTTL: 15 * time.Minute, RefreshTTL: time.Hour,
+		},
+		Secrets: config.Secrets{EncryptionKey: make([]byte, 32)},
+		Ingest:  config.Ingest{MaxPayloadBytes: 262144, RateLimitPerMin: 600},
+		Outbox:  config.Outbox{PollInterval: 50 * time.Millisecond, BatchSize: 100},
 	}, nil
 }
 

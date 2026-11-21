@@ -59,7 +59,7 @@ func decodeError(t *testing.T, body io.Reader) errorBody {
 
 func TestRouter(t *testing.T) {
 	t.Parallel()
-	h := NewRouter(discard, observability.NewHealth())
+	h := NewRouter(RouterDeps{Logger: discard, Health: observability.NewHealth()})
 
 	tests := []struct {
 		name     string
@@ -147,7 +147,7 @@ func TestRespondJSON(t *testing.T) {
 
 func TestServerStartStop(t *testing.T) {
 	t.Parallel()
-	s := NewServer(0, time.Second, NewRouter(discard, observability.NewHealth()), discard)
+	s := NewServer(0, time.Second, NewRouter(RouterDeps{Logger: discard, Health: observability.NewHealth()}), discard)
 	s.srv.Addr = "127.0.0.1:0"
 	done := make(chan error, 1)
 	go func() { done <- s.Start(context.Background()) }()

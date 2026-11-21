@@ -27,6 +27,7 @@ var errorTable = []struct {
 	{domain.ErrConflict, mappedError{http.StatusConflict, "CONFLICT", "request conflicts with current state"}},
 	{domain.ErrPayloadTooBig, mappedError{http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "payload exceeds 256 KB"}},
 	{domain.ErrBlockedHost, mappedError{http.StatusUnprocessableEntity, "BLOCKED_HOST", "endpoint host is not allowed"}},
+	{domain.ErrUnprocessable, mappedError{http.StatusUnprocessableEntity, "UNPROCESSABLE_ENTITY", "request refers to something that does not exist"}},
 	{domain.ErrRateLimited, mappedError{http.StatusTooManyRequests, "RATE_LIMITED", "too many requests"}},
 	{domain.ErrUnavailable, mappedError{http.StatusServiceUnavailable, "UNAVAILABLE", "service temporarily unavailable"}},
 }

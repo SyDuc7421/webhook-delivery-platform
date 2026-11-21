@@ -2,10 +2,13 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5/middleware"
+
+	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/domain"
 )
 
 // errorBody is the only error shape the API returns (docs/API.md §Response envelope).
@@ -44,8 +47,15 @@ func respondError(w http.ResponseWriter, r *http.Request, logger *slog.Logger, e
 			slog.String("request_id", middleware.GetReqID(r.Context())),
 			slog.String("error", err.Error()))
 	}
+	details := []FieldDetail{}
+	var ve *domain.ValidationError
+	if errors.As(err, &ve) {
+		for _, f := range ve.Fields {
+			details = append(details, FieldDetail{Field: f.Field, Issue: f.Issue})
+		}
+	}
 	writeJSON(w, m.status, errorBody{
-		Error:     errorDetail{Code: m.code, Message: m.message, Details: []FieldDetail{}},
+		Error:     errorDetail{Code: m.code, Message: m.message, Details: details},
 		RequestID: middleware.GetReqID(r.Context()),
 	})
 }

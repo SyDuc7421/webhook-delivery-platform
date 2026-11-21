@@ -15,6 +15,8 @@ func setEnv(t *testing.T) {
 	t.Setenv("POSTGRES_USER", "u")
 	t.Setenv("POSTGRES_PASSWORD", "p")
 	t.Setenv("POSTGRES_DB", "d")
+	t.Setenv("JWT_SECRET", "boot-test-jwt-secret-at-least-32-bytes")
+	t.Setenv("SECRETS_ENCRYPTION_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
 	t.Setenv("METRICS_ADDR", "127.0.0.1:0")
 	t.Setenv("SHUTDOWN_TIMEOUT", "2s")
 	t.Setenv("LOG_LEVEL", "error")

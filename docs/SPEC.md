@@ -41,9 +41,9 @@ order, records every attempt, and lets people replay deliveries.
 
 | ID | Requirement | Status |
 |---|---|---|
-| FR-A1 | A user registers with email + password; registering creates a new org with the user as `owner` | 🗓️ M1 |
-| FR-A2 | Login returns an access token and a single-use refresh token | 🗓️ M1 |
-| FR-A3 | Every dashboard API call is scoped to the caller's org; no cross-org reads or writes | 🗓️ M1 |
+| FR-A1 | A user registers with email + password; registering creates a new org with the user as `owner` | ✅ |
+| FR-A2 | Login returns an access token and a single-use refresh token | ✅ |
+| FR-A3 | Every dashboard API call is scoped to the caller's org; no cross-org reads or writes | ⚠️ (org in token; resource scoping lands with M1b) |
 
 ### 3.2 API keys
 
