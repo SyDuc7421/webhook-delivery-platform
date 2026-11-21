@@ -5,18 +5,26 @@ import (
 	"context"
 
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/cmd/internal/boot"
-	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/platform"
+	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/app"
 )
 
 func main() {
 	boot.Main("relay", func(ctx context.Context, p *boot.Process) error {
-		if _, err := p.Postgres(ctx); err != nil {
+		pool, err := p.Postgres(ctx)
+		if err != nil {
 			return err
 		}
-		if _, err := p.Kafka(); err != nil {
+		kc, err := p.Kafka()
+		if err != nil {
 			return err
 		}
-		p.Add(platform.NewIdle("relay", "M1", p.Logger))
+		relay, err := app.NewRelayComponent(app.RelayDeps{
+			Config: p.Config, Pool: pool, Kafka: kc, Logger: p.Logger, Registry: p.Registry,
+		})
+		if err != nil {
+			return err
+		}
+		p.Add(relay)
 		return nil
 	})
 }

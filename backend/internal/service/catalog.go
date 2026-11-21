@@ -20,6 +20,7 @@ const maxExamplePayloadBytes = 262144
 const (
 	fieldDescription = "description"
 	fieldEventTypes  = "event_types"
+	fieldExample     = "example_payload"
 
 	issueTooLong500 = "must be at most 500 characters"
 )
@@ -136,10 +137,13 @@ func validateExample(p json.RawMessage) []domain.FieldError {
 		return nil
 	}
 	if len(p) > maxExamplePayloadBytes {
-		return []domain.FieldError{{Field: "example_payload", Issue: "must be at most 256 KB"}}
+		return []domain.FieldError{{Field: fieldExample, Issue: "must be at most 256 KB"}}
 	}
 	if !json.Valid(p) || !strings.HasPrefix(strings.TrimSpace(string(p)), "{") {
-		return []domain.FieldError{{Field: "example_payload", Issue: "must be a JSON object"}}
+		return []domain.FieldError{{Field: fieldExample, Issue: "must be a JSON object"}}
+	}
+	if issue := domain.JSONStorageIssue(p); issue != "" {
+		return []domain.FieldError{{Field: fieldExample, Issue: issue}}
 	}
 	return nil
 }

@@ -44,6 +44,19 @@ type Endpoint struct {
 	UpdatedAt        time.Time
 }
 
+type Event struct {
+	ID             uuid.UUID
+	OrgID          uuid.UUID
+	ConsumerID     uuid.UUID
+	EventTypeID    uuid.UUID
+	ConsumerUid    string
+	Type           string
+	Payload        json.RawMessage
+	IdempotencyKey *string
+	Traceparent    *string
+	CreatedAt      time.Time
+}
+
 type EventType struct {
 	ID             uuid.UUID
 	OrgID          uuid.UUID
@@ -59,6 +72,12 @@ type Org struct {
 	Name      string
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+type Outbox struct {
+	ID        int64
+	EventID   uuid.UUID
+	CreatedAt time.Time
 }
 
 type User struct {

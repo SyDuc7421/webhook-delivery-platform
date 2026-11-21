@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/mail"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +32,8 @@ type AuthDeps struct {
 	RefreshTTL time.Duration
 	Clock      platform.Clock
 	Logger     *slog.Logger
+	// Hashing bounds concurrent argon2id work; nil means one slot per CPU (at least 2).
+	Hashing *authn.Limiter
 }
 
 // AuthService implements registration and dashboard sessions (FR-A1, FR-A2).
@@ -42,7 +45,32 @@ type AuthService struct {
 }
 
 // NewAuthService returns an AuthService.
-func NewAuthService(d AuthDeps) *AuthService { return &AuthService{d: d} }
+func NewAuthService(d AuthDeps) *AuthService {
+	if d.Hashing == nil {
+		d.Hashing = authn.NewLimiter(max(2, runtime.GOMAXPROCS(0)))
+	}
+	return &AuthService{d: d}
+}
+
+func (s *AuthService) hashPassword(ctx context.Context, pw string) (string, error) {
+	var hash string
+	err := s.d.Hashing.Do(ctx, func() error {
+		var herr error
+		hash, herr = authn.HashPassword(pw)
+		return herr
+	})
+	return hash, err
+}
+
+func (s *AuthService) verifyPassword(ctx context.Context, encoded, pw string) (bool, error) {
+	var ok bool
+	err := s.d.Hashing.Do(ctx, func() error {
+		var verr error
+		ok, verr = authn.VerifyPassword(encoded, pw)
+		return verr
+	})
+	return ok, err
+}
 
 // RegisterInput is a new account: the user becomes owner of a new org.
 type RegisterInput struct {
@@ -67,7 +95,7 @@ func (s *AuthService) Register(ctx context.Context, in RegisterInput) (Session, 
 	if err := validateRegistration(email, in.Password, orgName); err != nil {
 		return Session{}, err
 	}
-	hash, err := authn.HashPassword(in.Password)
+	hash, err := s.hashPassword(ctx, in.Password)
 	if err != nil {
 		return Session{}, fmt.Errorf("hash password: %w", err)
 	}
@@ -92,13 +120,15 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (Sessio
 	user, err := s.d.Users.GetByEmail(ctx, normalizeEmail(email))
 	if errors.Is(err, domain.ErrNotFound) {
 		// Spend the same hashing time as a real check so timing does not reveal the email.
-		_, _ = authn.VerifyPassword(s.dummy(), password) // result is irrelevant
+		if _, verr := s.verifyPassword(ctx, s.dummy(), password); verr != nil && errors.Is(verr, domain.ErrUnavailable) {
+			return Session{}, fmt.Errorf("login: %w", verr)
+		}
 		return Session{}, errBadCredentials
 	}
 	if err != nil {
 		return Session{}, fmt.Errorf("login: %w", err)
 	}
-	ok, err := authn.VerifyPassword(user.PasswordHash, password)
+	ok, err := s.verifyPassword(ctx, user.PasswordHash, password)
 	if err != nil {
 		return Session{}, fmt.Errorf("verify password: %w", err)
 	}

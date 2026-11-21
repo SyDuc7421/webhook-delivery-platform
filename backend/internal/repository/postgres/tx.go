@@ -52,6 +52,12 @@ func queries(ctx context.Context, pool *pgxpool.Pool) *db.Queries {
 	return db.New(pool)
 }
 
+// inTx reports whether ctx carries a transaction (queries that take row locks require one).
+func inTx(ctx context.Context) bool {
+	_, ok := ctx.Value(txKey{}).(pgx.Tx)
+	return ok
+}
+
 // mapErr translates driver errors into domain sentinels.
 func mapErr(err error) error {
 	if err == nil {
@@ -67,6 +73,10 @@ func mapErr(err error) error {
 			return fmt.Errorf("%w: %s", domain.ErrAlreadyExists, pgErr.ConstraintName)
 		case "23503": // foreign_key_violation
 			return fmt.Errorf("%w: %s", domain.ErrNotFound, pgErr.ConstraintName)
+		case "23001": // restrict_violation: deleting a row that others still reference
+			return fmt.Errorf("%w: %s", domain.ErrConflict, pgErr.ConstraintName)
+		case "22021", "22P05": // text jsonb cannot store (invalid UTF-8, \u0000): the caller sent it
+			return fmt.Errorf("%w: %s", domain.ErrInvalidInput, pgErr.Message)
 		case "23514": // check_violation
 			return fmt.Errorf("%w: %s", domain.ErrInvalidInput, pgErr.ConstraintName)
 		}

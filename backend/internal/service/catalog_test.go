@@ -35,6 +35,8 @@ func TestCreateEventTypeValidation(t *testing.T) {
 		{"example not json", EventTypeInput{Name: "ok", ExamplePayload: json.RawMessage(`{bad`)}, "example_payload"},
 		{"example not object", EventTypeInput{Name: "ok", ExamplePayload: json.RawMessage(`"text"`)}, "example_payload"},
 		{"example array", EventTypeInput{Name: "ok", ExamplePayload: json.RawMessage(`[1]`)}, "example_payload"},
+		{"example nul escape", EventTypeInput{Name: "ok", ExamplePayload: json.RawMessage(`{"a":"\u0000"}`)}, "example_payload"},
+		{"example lone surrogate", EventTypeInput{Name: "ok", ExamplePayload: json.RawMessage(`{"a":"\ud800"}`)}, "example_payload"},
 		{"example too large", EventTypeInput{Name: "ok", ExamplePayload: json.RawMessage(`{"a":"` + strings.Repeat("x", 262144) + `"}`)}, "example_payload"},
 	}
 	for _, tt := range tests {

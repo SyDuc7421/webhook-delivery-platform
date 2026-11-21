@@ -15,6 +15,7 @@ tags:
 - name: event-types
 - name: consumers
 - name: endpoints
+- name: ingest
 paths:
   /v1/auth/register:
     post:
@@ -627,6 +628,103 @@ paths:
                         type: string
         '401': *id001
         '404': *id001
+  /v1/events:
+    post:
+      tags:
+      - ingest
+      summary: 'Accept an event (FR-I1). Kafka is not touched in the request: the event and its outbox row commit together
+        (FR-I4).'
+      security:
+      - bearerAPIKey: []
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 255
+          pattern: ^[!-~]+$
+        description: 'Visible ASCII, no spaces. A repeated key returns the original event and creates nothing; the response
+          carries `Idempotent-Replayed: true` (FR-I3)'
+      - name: traceparent
+        in: header
+        required: false
+        schema:
+          type: string
+        description: W3C trace context, stored and carried to the workers (NFR-O1)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - consumer_uid
+              - type
+              - payload
+              properties:
+                consumer_uid:
+                  type: string
+                  description: uid of an existing consumer of the org
+                type:
+                  type: string
+                  description: name of an existing event type of the org
+                payload:
+                  type: object
+                  description: JSON object, at most 262144 bytes (FR-I2)
+      responses:
+        '202':
+          description: Accepted
+          headers:
+            Idempotent-Replayed:
+              schema:
+                type: string
+                enum:
+                - 'true'
+              description: Present on a replay of an earlier Idempotency-Key
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      status:
+                        type: string
+                        enum:
+                        - accepted
+        '400': &id011
+          $ref: '#/components/responses/Error'
+        '401': *id011
+        '413':
+          description: Payload larger than 262144 bytes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Unknown consumer_uid or event type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Over the per-org limit (FR-I5)
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Seconds until the window resets
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 components:
   securitySchemes:
     bearerJWT:
@@ -634,6 +732,10 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: Access token from register/login/refresh, valid 15 minutes.
+    bearerAPIKey:
+      type: http
+      scheme: bearer
+      description: API key (whk_...) created by an owner; revoked keys are rejected immediately
   requestBodies:
     RefreshToken:
       required: true

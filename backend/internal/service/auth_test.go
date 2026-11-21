@@ -200,3 +200,27 @@ func TestRefreshAndLogout(t *testing.T) {
 		}
 	})
 }
+
+func TestLoginAnswersUnavailableWhenHashingIsSaturated(t *testing.T) {
+	t.Parallel()
+	f := newAuthFixture()
+	limiter := authn.NewLimiter(1)
+	clock := &fakeClock{now: time.Date(2026, 11, 21, 10, 0, 0, 0, time.UTC)}
+	svc := NewAuthService(AuthDeps{
+		Tx: fakeTx{}, Orgs: f.orgs, Users: f.users, Refresh: f.refresh, JWT: f.jwt,
+		RefreshTTL: time.Hour, Clock: clock, Logger: discard, Hashing: limiter,
+	})
+	started, release := make(chan struct{}), make(chan struct{})
+	go func() { _ = limiter.Do(context.Background(), func() error { close(started); <-release; return nil }) }()
+	<-started
+	defer close(release)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	if _, err := svc.Login(ctx, "nobody@example.com", goodPassword); !errors.Is(err, domain.ErrUnavailable) {
+		t.Errorf("login err = %v, want ErrUnavailable (argon2 memory is bounded, extra requests wait or fail, never pile up)", err)
+	}
+	if _, err := svc.Register(ctx, RegisterInput{Email: "a@b.co", Password: goodPassword, OrgName: "A"}); !errors.Is(err, domain.ErrUnavailable) {
+		t.Errorf("register err = %v, want ErrUnavailable", err)
+	}
+}

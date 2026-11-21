@@ -11,6 +11,7 @@ import (
 )
 
 type Querier interface {
+	CountOutbox(ctx context.Context) (int64, error)
 	CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) error
 	CreateConsumer(ctx context.Context, arg CreateConsumerParams) error
 	CreateEndpoint(ctx context.Context, arg CreateEndpointParams) error
@@ -20,15 +21,19 @@ type Querier interface {
 	DeleteConsumer(ctx context.Context, arg DeleteConsumerParams) (int64, error)
 	DeleteEndpoint(ctx context.Context, arg DeleteEndpointParams) (int64, error)
 	DeleteEventType(ctx context.Context, arg DeleteEventTypeParams) (int64, error)
+	DeleteOutboxRows(ctx context.Context, dollar_1 []int64) error
+	EnqueueOutbox(ctx context.Context, eventID uuid.UUID) error
 	GetActiveAPIKeyByHash(ctx context.Context, keyHash []byte) (GetActiveAPIKeyByHashRow, error)
 	GetConsumer(ctx context.Context, arg GetConsumerParams) (Consumer, error)
 	GetConsumerByUID(ctx context.Context, arg GetConsumerByUIDParams) (Consumer, error)
 	GetEndpoint(ctx context.Context, arg GetEndpointParams) (Endpoint, error)
+	GetEventByIdempotencyKey(ctx context.Context, arg GetEventByIdempotencyKeyParams) (Event, error)
 	GetEventType(ctx context.Context, arg GetEventTypeParams) (EventType, error)
 	GetEventTypesByNames(ctx context.Context, arg GetEventTypesByNamesParams) ([]EventType, error)
 	GetOrg(ctx context.Context, id uuid.UUID) (GetOrgRow, error)
 	GetUser(ctx context.Context, id uuid.UUID) (GetUserRow, error)
 	GetUserByEmail(ctx context.Context, email string) (GetUserByEmailRow, error)
+	InsertEvent(ctx context.Context, arg InsertEventParams) (int64, error)
 	ListAPIKeys(ctx context.Context, arg ListAPIKeysParams) ([]ListAPIKeysRow, error)
 	ListAPIKeysAfter(ctx context.Context, arg ListAPIKeysAfterParams) ([]ListAPIKeysAfterRow, error)
 	ListConsumers(ctx context.Context, arg ListConsumersParams) ([]Consumer, error)
@@ -37,6 +42,7 @@ type Querier interface {
 	ListEndpointsByConsumerAfter(ctx context.Context, arg ListEndpointsByConsumerAfterParams) ([]Endpoint, error)
 	ListEventTypes(ctx context.Context, arg ListEventTypesParams) ([]EventType, error)
 	ListEventTypesAfter(ctx context.Context, arg ListEventTypesAfterParams) ([]EventType, error)
+	LockOutboxBatch(ctx context.Context, limit int32) ([]LockOutboxBatchRow, error)
 	RevokeAPIKey(ctx context.Context, arg RevokeAPIKeyParams) (int64, error)
 	UpdateConsumer(ctx context.Context, arg UpdateConsumerParams) (int64, error)
 	UpdateEndpoint(ctx context.Context, arg UpdateEndpointParams) (int64, error)

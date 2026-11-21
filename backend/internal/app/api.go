@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus"
 	goredis "github.com/redis/go-redis/v9"
 
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/cache/redis"
@@ -28,6 +30,8 @@ type APIDeps struct {
 	Redis  *goredis.Client
 	Logger *slog.Logger
 	Health *observability.Health
+	// Registry receives the ingest metrics; nil means a private registry (tests).
+	Registry *prometheus.Registry
 }
 
 // NewAPIHandler wires repositories, services and the router for the api process.
@@ -52,7 +56,28 @@ func NewAPIHandler(d APIDeps) (http.Handler, error) {
 	endpoints := service.NewEndpointService(
 		postgres.NewEndpointRepo(d.Pool), postgres.NewConsumerRepo(d.Pool), postgres.NewEventTypeRepo(d.Pool), box, clock)
 	catalog := service.NewCatalogService(postgres.NewEventTypeRepo(d.Pool), postgres.NewConsumerRepo(d.Pool), clock)
+	reg := d.Registry
+	if reg == nil {
+		reg = prometheus.NewRegistry()
+	}
+	ingested := prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "webhook_events_ingested_total", Help: "Events handled by POST /v1/events, by result.",
+	}, []string{"result"})
+	failOpen := prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "webhook_rate_limit_fail_open_total", Help: "Requests let through because the rate limiter was unavailable.",
+	})
+	reg.MustRegister(ingested, failOpen)
+	for _, result := range []string{"accepted", "duplicate", "rejected", "rate_limited"} {
+		ingested.WithLabelValues(result) // expose zero-valued series from the start
+	}
+	ingest := service.NewIngestService(
+		postgres.NewTransactor(d.Pool), postgres.NewEventRepo(d.Pool), postgres.NewOutboxRepo(d.Pool),
+		postgres.NewConsumerRepo(d.Pool), postgres.NewEventTypeRepo(d.Pool), d.Config.Ingest.MaxPayloadBytes, clock, ingested)
+	limiter := redis.NewRateLimiter(d.Redis, d.Config.Ingest.RateLimitPerMin, time.Minute)
+
 	return apihttp.NewRouter(apihttp.RouterDeps{
 		Logger: d.Logger, Health: d.Health, Auth: auth, JWT: jwt, APIKeys: apiKeys, Catalog: catalog, Endpoints: endpoints,
+		Ingest: ingest, MaxPayloadBytes: d.Config.Ingest.MaxPayloadBytes, RateLimiter: limiter,
+		RateLimitFailOpen: failOpen, RateLimitDenied: ingested.WithLabelValues("rate_limited"),
 	}), nil
 }
