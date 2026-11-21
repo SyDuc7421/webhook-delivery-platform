@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS endpoints;
+DROP TABLE IF EXISTS consumers;
+DROP TABLE IF EXISTS event_types;

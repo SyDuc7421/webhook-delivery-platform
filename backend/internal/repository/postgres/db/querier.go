@@ -11,11 +11,37 @@ import (
 )
 
 type Querier interface {
+	CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) error
+	CreateConsumer(ctx context.Context, arg CreateConsumerParams) error
+	CreateEndpoint(ctx context.Context, arg CreateEndpointParams) error
+	CreateEventType(ctx context.Context, arg CreateEventTypeParams) error
 	CreateOrg(ctx context.Context, arg CreateOrgParams) error
 	CreateUser(ctx context.Context, arg CreateUserParams) error
+	DeleteConsumer(ctx context.Context, arg DeleteConsumerParams) (int64, error)
+	DeleteEndpoint(ctx context.Context, arg DeleteEndpointParams) (int64, error)
+	DeleteEventType(ctx context.Context, arg DeleteEventTypeParams) (int64, error)
+	GetActiveAPIKeyByHash(ctx context.Context, keyHash []byte) (GetActiveAPIKeyByHashRow, error)
+	GetConsumer(ctx context.Context, arg GetConsumerParams) (Consumer, error)
+	GetConsumerByUID(ctx context.Context, arg GetConsumerByUIDParams) (Consumer, error)
+	GetEndpoint(ctx context.Context, arg GetEndpointParams) (Endpoint, error)
+	GetEventType(ctx context.Context, arg GetEventTypeParams) (EventType, error)
+	GetEventTypesByNames(ctx context.Context, arg GetEventTypesByNamesParams) ([]EventType, error)
 	GetOrg(ctx context.Context, id uuid.UUID) (GetOrgRow, error)
 	GetUser(ctx context.Context, id uuid.UUID) (GetUserRow, error)
 	GetUserByEmail(ctx context.Context, email string) (GetUserByEmailRow, error)
+	ListAPIKeys(ctx context.Context, arg ListAPIKeysParams) ([]ListAPIKeysRow, error)
+	ListAPIKeysAfter(ctx context.Context, arg ListAPIKeysAfterParams) ([]ListAPIKeysAfterRow, error)
+	ListConsumers(ctx context.Context, arg ListConsumersParams) ([]Consumer, error)
+	ListConsumersAfter(ctx context.Context, arg ListConsumersAfterParams) ([]Consumer, error)
+	ListEndpointsByConsumer(ctx context.Context, arg ListEndpointsByConsumerParams) ([]Endpoint, error)
+	ListEndpointsByConsumerAfter(ctx context.Context, arg ListEndpointsByConsumerAfterParams) ([]Endpoint, error)
+	ListEventTypes(ctx context.Context, arg ListEventTypesParams) ([]EventType, error)
+	ListEventTypesAfter(ctx context.Context, arg ListEventTypesAfterParams) ([]EventType, error)
+	RevokeAPIKey(ctx context.Context, arg RevokeAPIKeyParams) (int64, error)
+	UpdateConsumer(ctx context.Context, arg UpdateConsumerParams) (int64, error)
+	UpdateEndpoint(ctx context.Context, arg UpdateEndpointParams) (int64, error)
+	UpdateEndpointSecret(ctx context.Context, arg UpdateEndpointSecretParams) (int64, error)
+	UpdateEventType(ctx context.Context, arg UpdateEventTypeParams) (int64, error)
 }
 
 var _ Querier = (*Queries)(nil)

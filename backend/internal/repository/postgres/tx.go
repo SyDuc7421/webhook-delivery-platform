@@ -73,3 +73,12 @@ func mapErr(err error) error {
 	}
 	return err
 }
+
+// notFoundIfNone turns "0 rows affected" into ErrNotFound. Every scoped update/delete uses it,
+// so another org's id looks exactly like a missing one.
+func notFoundIfNone(rows int64, what string) error {
+	if rows == 0 {
+		return fmt.Errorf("%s: %w", what, domain.ErrNotFound)
+	}
+	return nil
+}
