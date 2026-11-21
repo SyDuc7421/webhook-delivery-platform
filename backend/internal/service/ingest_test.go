@@ -29,6 +29,11 @@ type ingestFixture struct {
 
 func newIngestFixture(t *testing.T) ingestFixture {
 	t.Helper()
+	return newIngestFixtureCtx(t.Context(), t)
+}
+
+func newIngestFixtureCtx(ctx context.Context, t *testing.T) ingestFixture {
+	t.Helper()
 	f := ingestFixture{
 		events: newFakeEvents(), outbox: &fakeOutbox{}, consumers: newFakeConsumers(), types: newFakeEventTypes(),
 		counter: prometheus.NewCounterVec(prometheus.CounterOpts{Name: "test_ingested_total"}, []string{"result"}),
@@ -36,7 +41,6 @@ func newIngestFixture(t *testing.T) ingestFixture {
 	}
 	clock := &fakeClock{now: time.Date(2026, 11, 21, 10, 0, 0, 0, time.UTC)}
 	f.svc = NewIngestService(fakeTx{}, f.events, f.outbox, f.consumers, f.types, testMaxPayload, clock, f.counter)
-	ctx := t.Context()
 	if err := f.consumers.Create(ctx, domain.Consumer{ID: uuid.New(), OrgID: f.org, UID: "shop_42"}); err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +113,7 @@ func TestIngestIdempotency(t *testing.T) {
 	})
 
 	t.Run("keys are scoped per org", func(t *testing.T) {
-		g := newIngestFixture(t)
+		g := newIngestFixtureCtx(ctx, t)
 		g.org = uuid.New()
 		_ = g.consumers.Create(ctx, domain.Consumer{ID: uuid.New(), OrgID: g.org, UID: "shop_42"})
 		_ = g.types.Create(ctx, domain.EventType{ID: uuid.New(), OrgID: g.org, Name: "payment.paid"})
