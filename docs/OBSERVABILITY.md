@@ -34,7 +34,8 @@ Pipeline metrics required by NFR-O2:
 | Metric | Type | Labels |
 | --- | --- | --- |
 | `webhook_events_ingested_total` | counter | result (`accepted`/`duplicate`/`rejected`/`rate_limited`) |
-| `webhook_outbox_backlog` | gauge | — |
+| `webhook_outbox_backlog` | gauge | — (also updated while Kafka is down, so the backlog is visible exactly then) |
+| `webhook_rate_limit_fail_open_total` | counter | — (requests let through because Redis was unavailable, NFR-D1) |
 | `webhook_kafka_records_produced_total` | counter | topic, result |
 | `webhook_kafka_records_consumed_total` | counter | topic, result |
 | `webhook_kafka_consumer_lag` | gauge | group, topic (retry-tier depth = lag on `deliveries.retry.*`) |

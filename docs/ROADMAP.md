@@ -8,7 +8,7 @@ using real velocity.
 | # | Milestone | Requirements | Est. hours |
 |---|---|---|---|
 | M0 ✅ 2026-11-21 | Monorepo, compose, CI skeleton, migration tooling | — | 8 |
-| M1 | Accounts/orgs, API keys, event types, consumers/endpoints, ingest + outbox + relay, Redis rate limit | FR-A, FR-K, FR-T, FR-E1–4, FR-I, NFR-D1 | 20 |
+| M1 ✅ 2026-11-21 | Accounts/orgs, API keys, event types, consumers/endpoints, ingest + outbox + relay, Redis rate limit | FR-A, FR-K, FR-T, FR-E1–4, FR-I, NFR-D1 | 20 |
 | M2 | Dispatcher, delivery worker, signing, SSRF guard, partitioned attempts, retry tiers + DLQ, replay API | FR-E5, FR-D, FR-R, NFR-R2–3, NFR-S1, S3–4 | 25 |
 | M3 | OpenTelemetry across Kafka, metrics, logs, provisioned dashboards and alerts | NFR-O, NFR-S5 | 12 |
 | M4 | Web MVP screens + test receiver | FR-W, FR-X, NFR-S2 | 30 |

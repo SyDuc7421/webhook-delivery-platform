@@ -51,7 +51,7 @@ order, records every attempt, and lets people replay deliveries.
 |---|---|---|
 | FR-K1 | An owner creates an API key; the full key is shown exactly once | ✅ |
 | FR-K2 | Only a hash and a short prefix are stored | ✅ |
-| FR-K3 | A revoked key is rejected immediately | ⚠️ (revocation proven at the service; the ingest route lands in M1c) |
+| FR-K3 | A revoked key is rejected immediately | ✅ |
 
 ### 3.3 Event types
 
@@ -75,11 +75,11 @@ order, records every attempt, and lets people replay deliveries.
 
 | ID | Requirement | Status |
 |---|---|---|
-| FR-I1 | `POST /v1/events` with an API key accepts `{consumer_uid, type, payload}` | 🗓️ M1 |
-| FR-I2 | Payload is JSON, max 256 KB | 🗓️ M1 |
-| FR-I3 | With an `Idempotency-Key` header, a repeated request returns the original event and creates nothing new | 🗓️ M1 |
-| FR-I4 | An accepted event is never lost, even if Kafka is down at the moment of the request | 🗓️ M1 |
-| FR-I5 | Ingest is rate-limited per org, with a limit shared by all `api` instances (Redis); over the limit returns `429` with `Retry-After` | 🗓️ M1 |
+| FR-I1 | `POST /v1/events` with an API key accepts `{consumer_uid, type, payload}` | ✅ |
+| FR-I2 | Payload is JSON, max 256 KB | ✅ |
+| FR-I3 | With an `Idempotency-Key` header, a repeated request returns the original event and creates nothing new | ✅ |
+| FR-I4 | An accepted event is never lost, even if Kafka is down at the moment of the request | ✅ |
+| FR-I5 | Ingest is rate-limited per org, with a limit shared by all `api` instances (Redis); over the limit returns `429` with `Retry-After` | ✅ |
 
 ### 3.6 Delivery
 
@@ -152,7 +152,7 @@ No target numbers are set before the first measurement.
 
 | ID | Requirement | Status |
 |---|---|---|
-| NFR-D1 | If Redis is unavailable, ingest and delivery keep working: rate limits fail open (logged), caches fall back to Postgres | 🗓️ M1 |
+| NFR-D1 | If Redis is unavailable, ingest and delivery keep working: rate limits fail open (logged), caches fall back to Postgres | ✅ |
 
 ### 4.5 Observability
 
