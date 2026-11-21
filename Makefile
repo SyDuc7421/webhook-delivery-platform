@@ -28,8 +28,7 @@ setup:
 	$(GO) install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
 	$(GO) install github.com/vektra/mockery/v2@latest
 	$(GO) install golang.org/x/vuln/cmd/govulncheck@latest
-	npm install
-	npx husky
+	pnpm install --frozen-lockfile   # prepare script installs the husky hooks
 	pre-commit install --hook-type pre-commit --hook-type commit-msg
 	@echo "setup complete — run 'make up'"
 

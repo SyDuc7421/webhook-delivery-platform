@@ -28,12 +28,12 @@ import (
 )
 
 // Images. Postgres and Redis match deploy/docker-compose.yml. The testcontainers Kafka module
-// only drives Confluent images, so tests use confluent-local (Apache Kafka 3.5, KRaft) while
+// only drives Confluent images, so tests use confluent-local (Confluent 8.x = Apache Kafka 4.x, KRaft) while
 // compose uses apache/kafka; the client protocol used here is the same.
 const (
-	PostgresImage = "postgres:17-alpine"
-	RedisImage    = "redis:7.4-alpine"
-	KafkaImage    = "confluentinc/confluent-local:7.5.0"
+	PostgresImage = "postgres:19-alpine"
+	RedisImage    = "redis:8.10-alpine"
+	KafkaImage    = "confluentinc/confluent-local:8.4.1"
 )
 
 // Env is a running set of dependencies.
