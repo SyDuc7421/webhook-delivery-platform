@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -18,6 +19,34 @@ type Config struct {
 	Postgres Postgres
 	Redis    Redis
 	Kafka    Kafka
+	Auth     Auth
+	Secrets  Secrets
+	Ingest   Ingest
+	Outbox   Outbox
+}
+
+// Auth configures dashboard sessions: JWT access tokens and opaque refresh tokens.
+type Auth struct {
+	JWTSecret  []byte
+	AccessTTL  time.Duration
+	RefreshTTL time.Duration
+}
+
+// Secrets holds the AES-256 key that encrypts endpoint signing secrets at rest.
+type Secrets struct {
+	EncryptionKey []byte
+}
+
+// Ingest configures POST /v1/events.
+type Ingest struct {
+	MaxPayloadBytes int // FR-I2
+	RateLimitPerMin int // FR-I5, per org
+}
+
+// Outbox configures the relay.
+type Outbox struct {
+	PollInterval time.Duration
+	BatchSize    int
 }
 
 // App holds process-wide settings.
@@ -124,6 +153,21 @@ func load(lookup lookupFunc) (Config, error) {
 		},
 	}
 
+	cfg.Auth = Auth{
+		JWTSecret:  []byte(r.required("JWT_SECRET")),
+		AccessTTL:  r.duration("JWT_ACCESS_TTL", 15*time.Minute),
+		RefreshTTL: r.duration("JWT_REFRESH_TTL", 168*time.Hour),
+	}
+	cfg.Secrets = Secrets{EncryptionKey: r.base64Key("SECRETS_ENCRYPTION_KEY", 32)}
+	cfg.Ingest = Ingest{
+		MaxPayloadBytes: r.int("INGEST_MAX_PAYLOAD_BYTES", 262144),
+		RateLimitPerMin: r.int("INGEST_RATE_LIMIT_PER_MIN", 600),
+	}
+	cfg.Outbox = Outbox{
+		PollInterval: r.duration("OUTBOX_POLL_INTERVAL", 200*time.Millisecond),
+		BatchSize:    r.int("OUTBOX_BATCH_SIZE", 100),
+	}
+
 	r.check(validEnvs[cfg.App.Env], "APP_ENV must be one of local, dev, aws")
 	r.check(validLogLevels[cfg.App.LogLevel], "LOG_LEVEL must be one of debug, info, warn, error")
 	r.check(cfg.App.ShutdownTimeout > 0, "SHUTDOWN_TIMEOUT must be positive")
@@ -132,6 +176,12 @@ func load(lookup lookupFunc) (Config, error) {
 	r.check(cfg.Postgres.MinConns >= 0, "POSTGRES_MIN_CONNS must not be negative")
 	r.check(cfg.Postgres.MaxConns <= 1000, "POSTGRES_MAX_CONNS must be <= 1000")
 	r.check(len(cfg.Kafka.Brokers) > 0, "KAFKA_BROKERS must not be empty")
+	r.check(len(cfg.Auth.JWTSecret) == 0 || len(cfg.Auth.JWTSecret) >= 32, "JWT_SECRET must be at least 32 bytes")
+	r.check(cfg.Auth.AccessTTL > 0 && cfg.Auth.RefreshTTL > 0, "JWT_ACCESS_TTL and JWT_REFRESH_TTL must be positive")
+	r.check(cfg.Ingest.MaxPayloadBytes > 0, "INGEST_MAX_PAYLOAD_BYTES must be positive")
+	r.check(cfg.Ingest.RateLimitPerMin > 0, "INGEST_RATE_LIMIT_PER_MIN must be positive")
+	r.check(cfg.Outbox.PollInterval > 0, "OUTBOX_POLL_INTERVAL must be positive")
+	r.check(cfg.Outbox.BatchSize > 0, "OUTBOX_BATCH_SIZE must be positive")
 
 	if len(r.errs) > 0 {
 		return Config{}, fmt.Errorf("invalid configuration: %w", errors.Join(r.errs...))
@@ -164,6 +214,20 @@ func (r *reader) required(key string) string {
 		return ""
 	}
 	return strings.TrimSpace(v)
+}
+
+// base64Key reads a required base64 value that must decode to exactly n bytes.
+func (r *reader) base64Key(key string, n int) []byte {
+	v := r.required(key)
+	if v == "" {
+		return nil
+	}
+	b, err := base64.StdEncoding.DecodeString(v)
+	if err != nil || len(b) != n {
+		r.errs = append(r.errs, fmt.Errorf("%s must be %d bytes base64", key, n))
+		return nil
+	}
+	return b
 }
 
 func (r *reader) int(key string, def int) int {
