@@ -73,6 +73,7 @@ Open item for M6: custom domain for HTTPS on the ALB, or demo over the ALB's HTT
 
 ## Left to the builder
 
-~~Package layout inside `/backend`~~ (see `AGENTS.md` §4), binary-per-role vs role flag, Kafka client library (franz-go
+~~Package layout inside `/backend`~~ (see `AGENTS.md` §4), ~~binary-per-role vs role flag~~
+(binary per process, M0), Kafka client library (franz-go
 suggested), Postgres driver (pgx), partition-retention mechanism, exact retry delays and timeouts,
 Terraform module internals, Grafana dashboard layout, shadcn components.

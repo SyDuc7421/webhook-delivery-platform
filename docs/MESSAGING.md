@@ -9,12 +9,7 @@ Created by `kafka-init` in `deploy/docker-compose.yml` locally (`make topics`) a
 Terraform module on AWS. Auto-create is off: a topic that is not declared does not exist.
 Topic names live only in `internal/messaging/kafka/topics.go`.
 
-| Topic | Key | Producer | Consumer group |
-| --- | --- | --- | --- |
-| `events` | `consumer_uid` | relay | `dispatcher` |
-| `deliveries` | `endpoint_id` | dispatcher, replay | `delivery-worker` |
-| `deliveries.retry.1m` / `.10m` / `.1h` / `.6h` | `endpoint_id` | delivery-worker, retry-worker | `retry-worker.<tier>` |
-| `deliveries.dlq` | `endpoint_id` | retry-worker | — (status lives in Postgres) |
+Topics, keys, producers and consumer groups: [architect.md §3](architect.md#kafka-topics).
 
 - The key decides ordering. `deliveries` is keyed by `endpoint_id` so first attempts to one
   endpoint stay ordered (FR-D5). Never change a key without an ADR.

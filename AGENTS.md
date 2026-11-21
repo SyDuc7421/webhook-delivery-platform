@@ -71,8 +71,9 @@ make logs svc=api
 ```
 backend/
   cmd/<process>/main.go      Composition root per process (api, relay, dispatcher,
-                             delivery-worker, retry-worker) — or one binary with a role flag.
-                             Wiring only — zero business logic.
+                             delivery-worker, retry-worker). Wiring only — zero business logic.
+  cmd/internal/boot/         Shared wiring: config, logger, signals, ops server, dependency
+                             constructors. Importable only from cmd/.
   internal/
     config/                  Env parsing + validation. Fail fast at boot.
     http/                    chi: router, middleware, handlers, DTOs, error mapping.
@@ -138,7 +139,7 @@ Do **not** read all of these at once. Open only what the task needs.
 | Task | Read |
 | --- | --- |
 | What must the system do (FR/NFR) | `docs/spec.md` |
-| Processes, topics, tables, Redis keys | `docs/architect.md` |
+| Processes, topics, tables, Redis keys, code layering | `docs/architect.md` |
 | Milestones, scope, what's next | `docs/roadmap.md` |
 | Adding/changing an endpoint | `docs/API.md`, `docs/CONVENTIONS.md` |
 | Schema, queries, transactions, partitions | `docs/DATABASE.md` |
@@ -146,11 +147,9 @@ Do **not** read all of these at once. Open only what the task needs.
 | Rate limits, caches, refresh tokens | `docs/CACHING.md` |
 | Logs, metrics, traces, dashboards | `docs/OBSERVABILITY.md` |
 | Writing tests | `docs/TESTING.md` |
-| Boot, ports, tooling problems | `docs/LOCAL_DEV.md` |
-| Compose, AWS, Terraform, CI/CD | `docs/deploy.md` |
+| Local setup, ports, troubleshooting, AWS, Terraform, CI/CD | `docs/deploy.md` |
 | Incident / demo-session problems | `docs/RUNBOOK.md` |
 | Big technical decision | `docs/adr/` + `docs/adr/0000-template.md` |
-| Code layering inside a process | `docs/ARCHITECTURE.md` |
 | Why the project exists, design history | `docs/superpowers/specs/2026-11-18-webhook-platform-design.md` |
 
 ## 8. Hard "do not"

@@ -45,8 +45,10 @@ Decisions and their trade-offs are recorded in [adr/](adr/).
 | `retry-worker` | Sends retries per tier, moves exhausted messages to the DLQ | Kafka, Postgres, the internet |
 | `web` | Next.js dashboard | `api` |
 
-Whether these are separate binaries or one binary with a role flag is left to implementation.
-Inside each process the code follows the layering in [ARCHITECTURE.md](ARCHITECTURE.md).
+Each process is its own binary (`backend/cmd/<process>`, one image per process via the
+`APP` build arg); shared wiring lives in `backend/cmd/internal/boot`. Every process serves
+`/metrics`, `/healthz` and `/readyz` on `METRICS_ADDR` (:9100).
+Inside each process the code follows the layering in [§9](#9-code-layering-inside-a-process).
 
 ### Backing services
 
@@ -93,12 +95,14 @@ Kafka is not touched in the request. If Kafka is down, events wait in the outbox
 
 ### Kafka topics
 
-| Topic | Key | Producer | Consumer |
+| Topic | Key | Producer | Consumer group |
 |---|---|---|---|
-| `events` | `consumer_uid` | relay | dispatcher |
-| `deliveries` | `endpoint_id` | dispatcher, replay | delivery-worker |
-| `deliveries.retry.1m` / `.10m` / `.1h` / `.6h` | `endpoint_id` | delivery-worker, retry-worker | retry-worker |
-| `deliveries.dlq` | `endpoint_id` | retry-worker | (dashboard reads Postgres status) |
+| `events` | `consumer_uid` | relay | `dispatcher` |
+| `deliveries` | `endpoint_id` | dispatcher, replay | `delivery-worker` |
+| `deliveries.retry.1m` / `.10m` / `.1h` / `.6h` | `endpoint_id` | delivery-worker, retry-worker | `retry-worker.<tier>` |
+| `deliveries.dlq` | `endpoint_id` | retry-worker | — (dashboard reads Postgres status) |
+
+Rules for producers and consumers: [MESSAGING.md](MESSAGING.md).
 
 ### Delivery semantics
 
@@ -134,14 +138,16 @@ Redis holds only state that is shared between instances and safe to lose. Nothin
 pipeline depends on Redis for durability: retries live in Kafka, delivery status lives in Postgres
 (see [ADR-0003](adr/0003-retry-tiers-over-strict-ordering.md)).
 
-| Use | Key | Pattern | Milestone |
-|---|---|---|---|
-| Ingest rate limit per org | `rl:org:{org_id}` | fixed or sliding window counter, shared by all `api` instances | M1 |
-| Refresh tokens | `rt:{token}` | single use via `GETDEL` (as in `shorten-link`) | M1 |
-| API key → org | `ak:{key_hash}` | cache-aside, TTL ≤ 60 s, deleted on revoke | M5 |
-| Consumer → subscribed endpoints | `subs:{consumer_id}` | cache-aside, TTL ≤ 60 s, deleted on any endpoint write for that consumer | M5 |
-| Per-endpoint send rate limit | `rl:ep:{endpoint_id}` | token bucket (Lua script), shared by all workers | stretch |
-| Circuit breaker state | `cb:{endpoint_id}` | open/half-open/closed with expiry, shared by all workers | stretch |
+| Use | Key | Pattern | TTL | Milestone |
+|---|---|---|---|---|
+| Ingest rate limit per org | `rl:org:{org_id}` | fixed or sliding window counter, shared by all `api` instances | window length | M1 |
+| Refresh tokens | `rt:{token_hash}` | single use via `GETDEL` (as in `shorten-link`) | `JWT_REFRESH_TTL` | M1 |
+| API key → org | `ak:{key_hash}` | cache-aside, deleted on revoke | ≤ 60 s | M5 |
+| Consumer → subscribed endpoints | `subs:{consumer_id}` | cache-aside, deleted on any endpoint write for that consumer | ≤ 60 s | M5 |
+| Per-endpoint send rate limit | `rl:ep:{endpoint_id}` | token bucket (Lua script), shared by all workers | bucket refill | stretch |
+| Circuit breaker state | `cb:{endpoint_id}` | open/half-open/closed with expiry, shared by all workers | open period | stretch |
+
+Rules (TTLs, invalidation, fail-open): [CACHING.md](CACHING.md).
 
 **Caches are added after a baseline.** M5 first runs k6 without caches, then adds the two caches and
 runs the same scenario again; both results are committed to `docs/results/`. See
@@ -187,3 +193,73 @@ caches fall back to Postgres, refresh fails (users log in again). Delivery keeps
 ```
 
 Monorepo: see [ADR-0006](adr/0006-monorepo.md).
+
+---
+
+## 9. Code layering inside a process
+
+
+### Shape
+
+One Go module (`backend/`), five processes sharing the same `internal/` packages, one database.
+The only rule that matters is the dependency direction.
+
+```
+            ┌────────────── inbound ───────────────────┐
+HTTP (chi)  ┤ handler → DTO → validate → map           │   api
+Kafka       ┤ consumer loop → record DTO → map         │   dispatcher, delivery-worker, retry-worker
+Ticker      ┘ outbox poll                              │   relay
+                        ↓
+                    service (use case)
+         ingest · dispatch · deliver · retry · replay · CRUD
+          orchestration · transactions · org scoping · policy
+                        ↓
+                     domain
+        entities · value objects · sentinel errors
+   interfaces (Repository, Cache, RateLimiter, Producer, Sender, Clock)
+                        ↑ implemented by
+   postgres (pgx)   redis   kafka producers   webhook (signing + SSRF-safe client)
+```
+
+- `domain` imports nothing from `internal/`.
+- `service` imports `domain` only.
+- Adapters (`http`, `repository`, `cache`, `messaging`, `webhook`) import `domain` (+ `service`
+  for inbound adapters).
+- `cmd/<process>/main.go` is the only place that knows every package. Manual constructor
+  wiring — no DI container. Each process wires only what it uses.
+
+### Request lifecycle (api)
+
+`recover → requestID → logger → tracing → metrics → CORS → auth (JWT or API key) → rateLimit
+(ingest) → body limit 256 KB → decode + validate → handler → service → repo/cache → response
+envelope`
+
+### Record lifecycle (workers)
+
+`fetch → extract trace context from headers → per-record timeout → service → DB commit +
+produce follow-up (acked) → commit offset` — see [MESSAGING.md](MESSAGING.md).
+
+### Cross-cutting decisions
+
+| Concern | Decision |
+| --- | --- |
+| Config | env vars → typed struct, validated at boot, fail fast |
+| Errors | sentinel errors in `domain`, single HTTP mapping table |
+| Transactions | owned by service layer via `Tx(ctx, fn)`; repos accept a `Querier` |
+| Async | Kafka; transactional outbox for DB↔broker atomicity (ADR-0002) |
+| Retries | Kafka retry tiers + DLQ (ADR-0003) |
+| Idempotency | Postgres unique constraints (`Idempotency-Key`, `(event_id, endpoint_id)`); receivers dedupe on `webhook-id` |
+| Cache | cache-aside, TTL ≤ 60 s, delete on write, only after a baseline (ADR-0007) |
+| Observability | slog JSON → Alloy → Loki; Prometheus; OTel → Tempo |
+| Shutdown | SIGTERM → stop accepting/fetching → drain in-flight (`SHUTDOWN_TIMEOUT`, 15 s) → commit → close pools |
+
+### Scaling notes
+
+Every process is stateless and scales horizontally: `api` behind the ALB, `relay` via
+`SKIP LOCKED`, workers via consumer groups (max useful replicas = partition count). State lives
+in Postgres (source of truth), Kafka (in-flight work) and Redis (loss-tolerant only).
+
+### Not included on purpose
+
+An ORM, a DI framework, gRPC, Kubernetes manifests, exactly-once delivery, multi-region. Add one
+only with an ADR.
