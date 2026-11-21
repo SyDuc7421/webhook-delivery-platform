@@ -91,7 +91,7 @@ services:
 
   redis:
     <<: *common
-    image: "redis:7.4-alpine"
+    image: "redis:8.10-alpine"
     # Loss-tolerant state only (ADR-0003): no persistence.
     command: ["redis-server", "--appendonly", "no", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
     ports: ["${REDIS_PORT:-6379}:6379"]
