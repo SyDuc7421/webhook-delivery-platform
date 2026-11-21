@@ -345,3 +345,125 @@ func TestAPIKeysHTTP(t *testing.T) {
 		}
 	})
 }
+
+type listResp struct {
+	Data []map[string]any `json:"data"`
+	Meta struct {
+		NextCursor string `json:"next_cursor"`
+		Limit      int    `json:"limit"`
+		HasMore    bool   `json:"has_more"`
+	} `json:"meta"`
+}
+
+type itemResp struct {
+	Data map[string]any `json:"data"`
+}
+
+func TestEventTypesHTTP(t *testing.T) {
+	env := testenv.Start(t)
+	ctx := t.Context()
+	c := apitest.New(t, env)
+	token, _ := registerOwner(ctx, t, c, "owner@acme.io", "Acme")
+	otherToken, _ := registerOwner(ctx, t, c, "owner@other.io", "Other")
+
+	resp, body := c.Do(ctx, http.MethodPost, "/v1/event-types", token, map[string]any{
+		"name": "payment.paid", "description": "A payment succeeded", "example_payload": map[string]any{"amount": 10},
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create = %d %s", resp.StatusCode, body)
+	}
+	created := decode[itemResp](t, body).Data
+	id, _ := created["id"].(string)
+	if created["name"] != "payment.paid" || id == "" || resp.Header.Get("Location") != "/v1/event-types/"+id {
+		t.Fatalf("created = %v, location = %q", created, resp.Header.Get("Location"))
+	}
+
+	t.Run("duplicate name", func(t *testing.T) {
+		resp, body := c.Do(ctx, http.MethodPost, "/v1/event-types", token, map[string]any{"name": "payment.paid"})
+		if resp.StatusCode != http.StatusConflict || !strings.Contains(string(body), "ALREADY_EXISTS") {
+			t.Errorf("duplicate = %d %s", resp.StatusCode, body)
+		}
+	})
+
+	t.Run("validation", func(t *testing.T) {
+		for name, req := range map[string]map[string]any{
+			"uppercase name":  {"name": "Payment.Paid"},
+			"example string":  {"name": "ok", "example_payload": "text"},
+			"example array":   {"name": "ok", "example_payload": []int{1}},
+			"missing name":    {"description": "x"},
+			"unknown field":   {"name": "ok", "color": "red"},
+			"name not string": {"name": 5},
+		} {
+			resp, body := c.Do(ctx, http.MethodPost, "/v1/event-types", token, req)
+			if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(body), "VALIDATION_FAILED") {
+				t.Errorf("%s = %d %s, want 400 VALIDATION_FAILED", name, resp.StatusCode, body)
+			}
+		}
+	})
+
+	t.Run("patch keeps what it does not mention and rejects renames", func(t *testing.T) {
+		resp, body := c.Do(ctx, http.MethodPatch, "/v1/event-types/"+id, token, map[string]any{"description": "new text"})
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("patch = %d %s", resp.StatusCode, body)
+		}
+		got := decode[itemResp](t, body).Data
+		if got["description"] != "new text" || got["example_payload"] == nil {
+			t.Errorf("patched = %v; example must be kept", got)
+		}
+		if r, _ := c.Do(ctx, http.MethodPatch, "/v1/event-types/"+id, token, map[string]any{"name": "renamed"}); r.StatusCode != http.StatusBadRequest {
+			t.Errorf("rename = %d, want 400", r.StatusCode)
+		}
+		resp, body = c.Do(ctx, http.MethodPatch, "/v1/event-types/"+id, token, map[string]any{"example_payload": nil})
+		if resp.StatusCode != http.StatusOK || decode[itemResp](t, body).Data["example_payload"] != nil {
+			t.Errorf("null example must clear it: %d %s", resp.StatusCode, body)
+		}
+	})
+
+	t.Run("other org sees 404", func(t *testing.T) {
+		for _, tc := range []struct{ method, path string }{
+			{http.MethodGet, "/v1/event-types/" + id}, {http.MethodPatch, "/v1/event-types/" + id}, {http.MethodDelete, "/v1/event-types/" + id},
+		} {
+			resp, body := c.Do(ctx, tc.method, tc.path, otherToken, map[string]any{"description": "hijack"})
+			if resp.StatusCode != http.StatusNotFound {
+				t.Errorf("%s %s as other org = %d %s, want 404", tc.method, tc.path, resp.StatusCode, body)
+			}
+		}
+		if resp, _ := c.Do(ctx, http.MethodGet, "/v1/event-types/"+id, token, nil); resp.StatusCode != http.StatusOK {
+			t.Errorf("owner must still see it: %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("list paginates with cursor", func(t *testing.T) {
+		for _, n := range []string{"a.one", "a.two", "a.three"} {
+			if resp, body := c.Do(ctx, http.MethodPost, "/v1/event-types", token, map[string]any{"name": n}); resp.StatusCode != http.StatusCreated {
+				t.Fatalf("create %s = %d %s", n, resp.StatusCode, body)
+			}
+		}
+		resp, body := c.Do(ctx, http.MethodGet, "/v1/event-types?limit=2", token, nil)
+		first := decode[listResp](t, body)
+		if resp.StatusCode != http.StatusOK || len(first.Data) != 2 || !first.Meta.HasMore || first.Meta.NextCursor == "" || first.Meta.Limit != 2 {
+			t.Fatalf("page1 = %d %s", resp.StatusCode, body)
+		}
+		_, body = c.Do(ctx, http.MethodGet, "/v1/event-types?limit=2&cursor="+first.Meta.NextCursor, token, nil)
+		second := decode[listResp](t, body)
+		if len(second.Data) != 2 || second.Meta.HasMore {
+			t.Fatalf("page2 = %s", body)
+		}
+		seen := map[any]bool{}
+		for _, row := range append(first.Data, second.Data...) {
+			seen[row["id"]] = true
+		}
+		if len(seen) != 4 {
+			t.Errorf("pages overlap or lose rows: %d distinct of 4", len(seen))
+		}
+	})
+
+	t.Run("delete", func(t *testing.T) {
+		if resp, body := c.Do(ctx, http.MethodDelete, "/v1/event-types/"+id, token, nil); resp.StatusCode != http.StatusNoContent {
+			t.Fatalf("delete = %d %s", resp.StatusCode, body)
+		}
+		if resp, _ := c.Do(ctx, http.MethodGet, "/v1/event-types/"+id, token, nil); resp.StatusCode != http.StatusNotFound {
+			t.Errorf("get after delete = %d, want 404", resp.StatusCode)
+		}
+	})
+}

@@ -22,6 +22,7 @@ type RouterDeps struct {
 	JWT    *authn.JWT
 
 	APIKeys *service.APIKeyService
+	Catalog *service.CatalogService
 }
 
 // NewRouter builds the api router.
@@ -47,6 +48,15 @@ func NewRouter(d RouterDeps) http.Handler {
 			r.Group(func(r chi.Router) {
 				r.Use(requireUser(d.JWT, logger))
 				r.Get("/me", auth.me)
+
+				types := &eventTypeHandler{svc: d.Catalog, logger: logger}
+				r.Route("/event-types", func(r chi.Router) {
+					r.Post("/", types.create)
+					r.Get("/", types.list)
+					r.Get("/{id}", types.get)
+					r.Patch("/{id}", types.update)
+					r.Delete("/{id}", types.delete)
+				})
 
 				keys := &apiKeyHandler{svc: d.APIKeys, logger: logger}
 				r.Route("/api-keys", func(r chi.Router) {

@@ -154,7 +154,7 @@ func (f *fakeAPIKeys) List(_ context.Context, orgID uuid.UUID, p domain.Page) ([
 		if k.OrgID != orgID {
 			continue
 		}
-		if p.After != nil && !isBefore(k, *p.After) {
+		if p.After != nil && !sortsAfter(k.CreatedAt, k.ID, *p.After) {
 			continue
 		}
 		out = append(out, k)
@@ -193,7 +193,180 @@ func (f *fakeAPIKeys) GetActiveByHash(_ context.Context, hash []byte) (domain.AP
 	return domain.APIKey{}, domain.ErrNotFound
 }
 
-// isBefore reports whether k sorts strictly after the cursor in (created_at, id) DESC order.
-func isBefore(k domain.APIKey, c domain.Cursor) bool {
-	return k.CreatedAt.Before(c.CreatedAt) || (k.CreatedAt.Equal(c.CreatedAt) && k.ID.String() < c.ID.String())
+// sortsAfter reports whether a row sorts strictly after the cursor in (created_at, id) DESC order.
+func sortsAfter(createdAt time.Time, id uuid.UUID, c domain.Cursor) bool {
+	return createdAt.Before(c.CreatedAt) || (createdAt.Equal(c.CreatedAt) && id.String() < c.ID.String())
+}
+
+type fakeEventTypes struct {
+	mu   sync.Mutex
+	rows []domain.EventType
+}
+
+func newFakeEventTypes() *fakeEventTypes { return &fakeEventTypes{} }
+
+func (f *fakeEventTypes) Create(_ context.Context, e domain.EventType) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, r := range f.rows {
+		if r.OrgID == e.OrgID && r.Name == e.Name {
+			return domain.ErrAlreadyExists
+		}
+	}
+	f.rows = append(f.rows, e)
+	return nil
+}
+
+func (f *fakeEventTypes) Get(_ context.Context, orgID, id uuid.UUID) (domain.EventType, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, r := range f.rows {
+		if r.OrgID == orgID && r.ID == id {
+			return r, nil
+		}
+	}
+	return domain.EventType{}, domain.ErrNotFound
+}
+
+func (f *fakeEventTypes) GetByNames(_ context.Context, orgID uuid.UUID, names []string) ([]domain.EventType, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []domain.EventType
+	for _, r := range f.rows {
+		for _, n := range names {
+			if r.OrgID == orgID && r.Name == n {
+				out = append(out, r)
+			}
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeEventTypes) List(_ context.Context, orgID uuid.UUID, p domain.Page) ([]domain.EventType, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []domain.EventType
+	for i := len(f.rows) - 1; i >= 0; i-- {
+		r := f.rows[i]
+		if r.OrgID != orgID {
+			continue
+		}
+		if p.After != nil && !sortsAfter(r.CreatedAt, r.ID, *p.After) {
+			continue
+		}
+		out = append(out, r)
+		if len(out) == p.Limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeEventTypes) Update(_ context.Context, e domain.EventType) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i, r := range f.rows {
+		if r.OrgID == e.OrgID && r.ID == e.ID {
+			f.rows[i].Description, f.rows[i].ExamplePayload = e.Description, e.ExamplePayload
+			return nil
+		}
+	}
+	return domain.ErrNotFound
+}
+
+func (f *fakeEventTypes) Delete(_ context.Context, orgID, id uuid.UUID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i, r := range f.rows {
+		if r.OrgID == orgID && r.ID == id {
+			f.rows = append(f.rows[:i], f.rows[i+1:]...)
+			return nil
+		}
+	}
+	return domain.ErrNotFound
+}
+
+type fakeConsumers struct {
+	mu   sync.Mutex
+	rows []domain.Consumer
+}
+
+func newFakeConsumers() *fakeConsumers { return &fakeConsumers{} }
+
+func (f *fakeConsumers) Create(_ context.Context, c domain.Consumer) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, r := range f.rows {
+		if r.OrgID == c.OrgID && r.UID == c.UID {
+			return domain.ErrAlreadyExists
+		}
+	}
+	f.rows = append(f.rows, c)
+	return nil
+}
+
+func (f *fakeConsumers) Get(_ context.Context, orgID, id uuid.UUID) (domain.Consumer, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, r := range f.rows {
+		if r.OrgID == orgID && r.ID == id {
+			return r, nil
+		}
+	}
+	return domain.Consumer{}, domain.ErrNotFound
+}
+
+func (f *fakeConsumers) GetByUID(_ context.Context, orgID uuid.UUID, uid string) (domain.Consumer, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, r := range f.rows {
+		if r.OrgID == orgID && r.UID == uid {
+			return r, nil
+		}
+	}
+	return domain.Consumer{}, domain.ErrNotFound
+}
+
+func (f *fakeConsumers) List(_ context.Context, orgID uuid.UUID, p domain.Page) ([]domain.Consumer, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []domain.Consumer
+	for i := len(f.rows) - 1; i >= 0; i-- {
+		r := f.rows[i]
+		if r.OrgID != orgID {
+			continue
+		}
+		if p.After != nil && !sortsAfter(r.CreatedAt, r.ID, *p.After) {
+			continue
+		}
+		out = append(out, r)
+		if len(out) == p.Limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeConsumers) Update(_ context.Context, c domain.Consumer) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i, r := range f.rows {
+		if r.OrgID == c.OrgID && r.ID == c.ID {
+			f.rows[i].Name = c.Name
+			return nil
+		}
+	}
+	return domain.ErrNotFound
+}
+
+func (f *fakeConsumers) Delete(_ context.Context, orgID, id uuid.UUID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i, r := range f.rows {
+		if r.OrgID == orgID && r.ID == id {
+			f.rows = append(f.rows[:i], f.rows[i+1:]...)
+			return nil
+		}
+	}
+	return domain.ErrNotFound
 }

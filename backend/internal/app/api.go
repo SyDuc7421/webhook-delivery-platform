@@ -43,7 +43,8 @@ func NewAPIHandler(d APIDeps) (http.Handler, error) {
 		Logger:     d.Logger,
 	})
 	apiKeys := service.NewAPIKeyService(postgres.NewAPIKeyRepo(d.Pool), clock)
+	catalog := service.NewCatalogService(postgres.NewEventTypeRepo(d.Pool), postgres.NewConsumerRepo(d.Pool), clock)
 	return apihttp.NewRouter(apihttp.RouterDeps{
-		Logger: d.Logger, Health: d.Health, Auth: auth, JWT: jwt, APIKeys: apiKeys,
+		Logger: d.Logger, Health: d.Health, Auth: auth, JWT: jwt, APIKeys: apiKeys, Catalog: catalog,
 	}), nil
 }
