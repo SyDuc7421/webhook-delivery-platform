@@ -43,32 +43,32 @@ order, records every attempt, and lets people replay deliveries.
 |---|---|---|
 | FR-A1 | A user registers with email + password; registering creates a new org with the user as `owner` | ✅ |
 | FR-A2 | Login returns an access token and a single-use refresh token | ✅ |
-| FR-A3 | Every dashboard API call is scoped to the caller's org; no cross-org reads or writes | ⚠️ (org in token; resource scoping lands with M1b) |
+| FR-A3 | Every dashboard API call is scoped to the caller's org; no cross-org reads or writes | ✅ |
 
 ### 3.2 API keys
 
 | ID | Requirement | Status |
 |---|---|---|
-| FR-K1 | An owner creates an API key; the full key is shown exactly once | 🗓️ M1 |
-| FR-K2 | Only a hash and a short prefix are stored | 🗓️ M1 |
-| FR-K3 | A revoked key is rejected immediately | 🗓️ M1 |
+| FR-K1 | An owner creates an API key; the full key is shown exactly once | ✅ |
+| FR-K2 | Only a hash and a short prefix are stored | ✅ |
+| FR-K3 | A revoked key is rejected immediately | ⚠️ (revocation proven at the service; the ingest route lands in M1c) |
 
 ### 3.3 Event types
 
 | ID | Requirement | Status |
 |---|---|---|
-| FR-T1 | CRUD event types; name is unique per org | 🗓️ M1 |
-| FR-T2 | An event type may carry an example payload, used by "send test event" | 🗓️ M1 |
-| FR-T3 | Payloads are **not** validated against a schema (MVP) | 🗓️ M1 |
+| FR-T1 | CRUD event types; name is unique per org | ✅ |
+| FR-T2 | An event type may carry an example payload, used by "send test event" | ✅ (stored; "send test event" is M4) |
+| FR-T3 | Payloads are **not** validated against a schema (MVP) | ✅ |
 
 ### 3.4 Consumers and endpoints
 
 | ID | Requirement | Status |
 |---|---|---|
-| FR-E1 | CRUD consumers; `uid` is unique per org | 🗓️ M1 |
-| FR-E2 | CRUD endpoints under a consumer: URL, description, subscribed event types (empty = all) | 🗓️ M1 |
-| FR-E3 | Each endpoint has a signing secret; the secret can be rotated | 🗓️ M1 |
-| FR-E4 | An endpoint can be disabled; disabled endpoints receive nothing | 🗓️ M1 |
+| FR-E1 | CRUD consumers; `uid` is unique per org | ✅ |
+| FR-E2 | CRUD endpoints under a consumer: URL, description, subscribed event types (empty = all) | ✅ |
+| FR-E3 | Each endpoint has a signing secret; the secret can be rotated | ✅ |
+| FR-E4 | An endpoint can be disabled; disabled endpoints receive nothing | ⚠️ (flag stored; the dispatcher enforces it in M2) |
 | FR-E5 | Endpoint URLs must be `https` (plain `http` allowed only in local dev) | 🗓️ M2 |
 
 ### 3.5 Ingest

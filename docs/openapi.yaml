@@ -2,17 +2,24 @@ openapi: 3.1.0
 info:
   title: webhook-platform API
   version: 0.1.0
-  description: |
-    Hand-written contract (docs/API.md §Documentation). Every error uses the `Error` envelope.
+  description: 'Hand-written contract (docs/API.md §Documentation). Every error uses the `Error` envelope.
+
     Dashboard routes take a JWT access token; ingest (M1c) takes an API key.
+
+    '
 servers:
-  - url: http://localhost:8080
+- url: http://localhost:8080
 tags:
-  - name: auth
+- name: auth
+- name: api-keys
+- name: event-types
+- name: consumers
+- name: endpoints
 paths:
   /v1/auth/register:
     post:
-      tags: [auth]
+      tags:
+      - auth
       summary: Register a user and create their org (FR-A1)
       requestBody:
         required: true
@@ -21,18 +28,35 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [email, password, org_name]
+              required:
+              - email
+              - password
+              - org_name
               properties:
-                email: { type: string, format: email, maxLength: 254, description: Trimmed and lowercased }
-                password: { type: string, minLength: 12, maxLength: 128 }
-                org_name: { type: string, minLength: 1, maxLength: 100 }
+                email:
+                  type: string
+                  format: email
+                  maxLength: 254
+                  description: Trimmed and lowercased
+                password:
+                  type: string
+                  minLength: 12
+                  maxLength: 128
+                org_name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
       responses:
-        "201": { $ref: "#/components/responses/Session" }
-        "400": { $ref: "#/components/responses/Error" }
-        "409": { $ref: "#/components/responses/Error" }
+        '201':
+          $ref: '#/components/responses/Session'
+        '400':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
   /v1/auth/login:
     post:
-      tags: [auth]
+      tags:
+      - auth
       summary: Log in (FR-A2)
       requestBody:
         required: true
@@ -41,39 +65,58 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [email, password]
+              required:
+              - email
+              - password
               properties:
-                email: { type: string }
-                password: { type: string }
+                email:
+                  type: string
+                password:
+                  type: string
       responses:
-        "200": { $ref: "#/components/responses/Session" }
-        "400": { $ref: "#/components/responses/Error" }
-        "401":
+        '200':
+          $ref: '#/components/responses/Session'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
           description: Unknown email or wrong password (same response for both)
-          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /v1/auth/refresh:
     post:
-      tags: [auth]
+      tags:
+      - auth
       summary: Trade a refresh token for a new session; the old token stops working
-      requestBody: { $ref: "#/components/requestBodies/RefreshToken" }
+      requestBody:
+        $ref: '#/components/requestBodies/RefreshToken'
       responses:
-        "200": { $ref: "#/components/responses/Session" }
-        "401": { $ref: "#/components/responses/Error" }
+        '200':
+          $ref: '#/components/responses/Session'
+        '401':
+          $ref: '#/components/responses/Error'
   /v1/auth/logout:
     post:
-      tags: [auth]
+      tags:
+      - auth
       summary: Revoke a refresh token
-      requestBody: { $ref: "#/components/requestBodies/RefreshToken" }
+      requestBody:
+        $ref: '#/components/requestBodies/RefreshToken'
       responses:
-        "204": { description: Logged out }
-        "400": { $ref: "#/components/responses/Error" }
+        '204':
+          description: Logged out
+        '400':
+          $ref: '#/components/responses/Error'
   /v1/me:
     get:
-      tags: [auth]
+      tags:
+      - auth
       summary: The caller and their org
-      security: [{ bearerJWT: [] }]
+      security:
+      - bearerJWT: []
       responses:
-        "200":
+        '200':
           description: Current user
           content:
             application/json:
@@ -83,9 +126,507 @@ paths:
                   data:
                     type: object
                     properties:
-                      user: { $ref: "#/components/schemas/User" }
-                      org: { $ref: "#/components/schemas/Org" }
-        "401": { $ref: "#/components/responses/Error" }
+                      user:
+                        $ref: '#/components/schemas/User'
+                      org:
+                        $ref: '#/components/schemas/Org'
+        '401':
+          $ref: '#/components/responses/Error'
+  /v1/api-keys:
+    post:
+      tags:
+      - api-keys
+      summary: Create an API key (owner only; the full key is shown once) (FR-K1)
+      security: &id002
+      - bearerJWT: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - name
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+      responses:
+        '201':
+          description: Created; `key` appears only here
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/CreatedAPIKey'
+        '400': &id001
+          $ref: '#/components/responses/Error'
+        '401': *id001
+        '403': *id001
+    get:
+      tags:
+      - api-keys
+      summary: List API keys (owner only); never includes the key
+      security: *id002
+      parameters: &id003
+      - &id005
+        $ref: '#/components/parameters/Limit'
+      - &id006
+        $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: A page of keys
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/APIKey'
+                  meta:
+                    $ref: '#/components/schemas/ListMeta'
+        '400': *id001
+        '401': *id001
+        '403': *id001
+  /v1/api-keys/{id}:
+    delete:
+      tags:
+      - api-keys
+      summary: Revoke a key immediately (owner only) (FR-K3)
+      security: *id002
+      parameters:
+      - &id004
+        $ref: '#/components/parameters/Id'
+      responses:
+        '204':
+          description: Revoked
+        '401': *id001
+        '403': *id001
+        '404': *id001
+  /v1/event-types:
+    post:
+      tags:
+      - event-types
+      summary: Create an event type (FR-T1)
+      security: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - name
+              properties:
+                name:
+                  type: string
+                  pattern: ^[a-z0-9][a-z0-9_.-]{0,99}$
+                  description: Unique per org; immutable
+                description:
+                  type: string
+                  maxLength: 500
+                example_payload:
+                  type:
+                  - object
+                  - 'null'
+                  description: Optional JSON object up to 256 KB; never schema-validated (FR-T3)
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/EventType'
+        '400': *id001
+        '401': *id001
+        '409': *id001
+        '413': *id001
+    get:
+      tags:
+      - event-types
+      summary: List event types
+      security: *id002
+      parameters: *id003
+      responses:
+        '200':
+          description: A page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EventType'
+                  meta:
+                    $ref: '#/components/schemas/ListMeta'
+        '400': *id001
+        '401': *id001
+  /v1/event-types/{id}:
+    get:
+      tags:
+      - event-types
+      summary: Get an event type
+      security: *id002
+      parameters:
+      - *id004
+      responses:
+        '200':
+          description: The event type
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/EventType'
+        '401': *id001
+        '404': *id001
+    patch:
+      tags:
+      - event-types
+      summary: Update description and/or example payload
+      security: *id002
+      parameters:
+      - *id004
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                description:
+                  type: string
+                  maxLength: 500
+                example_payload:
+                  type:
+                  - object
+                  - 'null'
+                  description: null clears the example
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/EventType'
+        '400': *id001
+        '401': *id001
+        '404': *id001
+    delete:
+      tags:
+      - event-types
+      summary: Delete an event type
+      security: *id002
+      parameters:
+      - *id004
+      responses:
+        '204':
+          description: Deleted
+        '401': *id001
+        '404': *id001
+  /v1/consumers:
+    post:
+      tags:
+      - consumers
+      summary: Create a consumer (FR-E1)
+      security: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - uid
+              properties:
+                uid:
+                  type: string
+                  pattern: ^[A-Za-z0-9_.:-]{1,128}$
+                  description: The org's own id for the customer; unique per org; immutable
+                name:
+                  type: string
+                  maxLength: 100
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Consumer'
+        '400': *id001
+        '401': *id001
+        '409': *id001
+    get:
+      tags:
+      - consumers
+      summary: List consumers
+      security: *id002
+      parameters: *id003
+      responses:
+        '200':
+          description: A page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Consumer'
+                  meta:
+                    $ref: '#/components/schemas/ListMeta'
+        '400': *id001
+        '401': *id001
+  /v1/consumers/{id}:
+    get:
+      tags:
+      - consumers
+      summary: Get a consumer
+      security: *id002
+      parameters:
+      - *id004
+      responses:
+        '200':
+          description: The consumer
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Consumer'
+        '401': *id001
+        '404': *id001
+    patch:
+      tags:
+      - consumers
+      summary: Rename a consumer (uid is immutable)
+      security: *id002
+      parameters:
+      - *id004
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - name
+              properties:
+                name:
+                  type: string
+                  maxLength: 100
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Consumer'
+        '400': *id001
+        '401': *id001
+        '404': *id001
+    delete:
+      tags:
+      - consumers
+      summary: Delete a consumer and its endpoints
+      security: *id002
+      parameters:
+      - *id004
+      responses:
+        '204':
+          description: Deleted
+        '401': *id001
+        '404': *id001
+  /v1/consumers/{id}/endpoints:
+    post:
+      tags:
+      - endpoints
+      summary: Create an endpoint; the signing secret is returned once (FR-E2, FR-E3)
+      security: *id002
+      parameters:
+      - *id004
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - url
+              properties:
+                url: &id007
+                  type: string
+                  maxLength: 2048
+                  description: Absolute http(s) URL with a host and no credentials; https-only outside local dev lands with
+                    FR-E5 (M2)
+                description: &id008
+                  type: string
+                  maxLength: 500
+                event_types: &id009
+                  type: array
+                  maxItems: 100
+                  items:
+                    type: string
+                  description: Subscribed event types; each must exist in the org; empty = all (FR-E2)
+                enabled: &id010
+                  type: boolean
+                  default: true
+      responses:
+        '201':
+          description: Created; `secret` appears only here and on rotation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/CreatedEndpoint'
+        '400': *id001
+        '401': *id001
+        '404': *id001
+        '422': *id001
+    get:
+      tags:
+      - endpoints
+      summary: List a consumer's endpoints
+      security: *id002
+      parameters:
+      - *id004
+      - *id005
+      - *id006
+      responses:
+        '200':
+          description: A page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Endpoint'
+                  meta:
+                    $ref: '#/components/schemas/ListMeta'
+        '400': *id001
+        '401': *id001
+        '404': *id001
+  /v1/endpoints/{id}:
+    get:
+      tags:
+      - endpoints
+      summary: Get an endpoint (no secret)
+      security: *id002
+      parameters:
+      - *id004
+      responses:
+        '200':
+          description: The endpoint
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Endpoint'
+        '401': *id001
+        '404': *id001
+    patch:
+      tags:
+      - endpoints
+      summary: Update an endpoint; `enabled:false` stops deliveries (FR-E4)
+      security: *id002
+      parameters:
+      - *id004
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                url: *id007
+                description: *id008
+                event_types: *id009
+                enabled: *id010
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Endpoint'
+        '400': *id001
+        '401': *id001
+        '404': *id001
+        '422': *id001
+    delete:
+      tags:
+      - endpoints
+      summary: Delete an endpoint
+      security: *id002
+      parameters:
+      - *id004
+      responses:
+        '204':
+          description: Deleted
+        '401': *id001
+        '404': *id001
+  /v1/endpoints/{id}/rotate-secret:
+    post:
+      tags:
+      - endpoints
+      summary: Issue a new signing secret, returned once (FR-E3)
+      security: *id002
+      parameters:
+      - *id004
+      responses:
+        '200':
+          description: New secret
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      secret:
+                        type: string
+        '401': *id001
+        '404': *id001
 components:
   securitySchemes:
     bearerJWT:
@@ -101,9 +642,11 @@ components:
           schema:
             type: object
             additionalProperties: false
-            required: [refresh_token]
+            required:
+            - refresh_token
             properties:
-              refresh_token: { type: string }
+              refresh_token:
+                type: string
   responses:
     Session:
       description: A new session
@@ -115,47 +658,213 @@ components:
               data:
                 type: object
                 properties:
-                  user: { $ref: "#/components/schemas/User" }
-                  org: { $ref: "#/components/schemas/Org" }
-                  access_token: { type: string }
-                  expires_at: { type: string, format: date-time }
-                  refresh_token: { type: string, description: Single use; store securely }
+                  user:
+                    $ref: '#/components/schemas/User'
+                  org:
+                    $ref: '#/components/schemas/Org'
+                  access_token:
+                    type: string
+                  expires_at:
+                    type: string
+                    format: date-time
+                  refresh_token:
+                    type: string
+                    description: Single use; store securely
     Error:
       description: Error envelope
       content:
         application/json:
-          schema: { $ref: "#/components/schemas/Error" }
+          schema:
+            $ref: '#/components/schemas/Error'
   schemas:
     User:
       type: object
       properties:
-        id: { type: string, format: uuid }
-        email: { type: string }
-        role: { type: string, enum: [owner, member] }
-        created_at: { type: string, format: date-time }
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        role:
+          type: string
+          enum:
+          - owner
+          - member
+        created_at:
+          type: string
+          format: date-time
     Org:
       type: object
       properties:
-        id: { type: string, format: uuid }
-        name: { type: string }
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
     Error:
       type: object
-      required: [error, request_id]
+      required:
+      - error
+      - request_id
       properties:
         error:
           type: object
-          required: [code, message, details]
+          required:
+          - code
+          - message
+          - details
           properties:
             code:
               type: string
               description: Stable SCREAMING_SNAKE code; clients switch on it
-              examples: [VALIDATION_FAILED, UNAUTHORIZED, FORBIDDEN, RESOURCE_NOT_FOUND, ALREADY_EXISTS, UNPROCESSABLE_ENTITY, PAYLOAD_TOO_LARGE, RATE_LIMITED, UNAVAILABLE, INTERNAL]
-            message: { type: string }
+              examples:
+              - VALIDATION_FAILED
+              - UNAUTHORIZED
+              - FORBIDDEN
+              - RESOURCE_NOT_FOUND
+              - ALREADY_EXISTS
+              - UNPROCESSABLE_ENTITY
+              - PAYLOAD_TOO_LARGE
+              - RATE_LIMITED
+              - UNAVAILABLE
+              - INTERNAL
+            message:
+              type: string
             details:
               type: array
               items:
                 type: object
                 properties:
-                  field: { type: string }
-                  issue: { type: string }
-        request_id: { type: string }
+                  field:
+                    type: string
+                  issue:
+                    type: string
+        request_id:
+          type: string
+    ListMeta:
+      type: object
+      properties:
+        next_cursor:
+          type: string
+        limit:
+          type: integer
+        has_more:
+          type: boolean
+    APIKey:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        prefix:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+    CreatedAPIKey:
+      allOf:
+      - $ref: '#/components/schemas/APIKey'
+      - type: object
+        properties:
+          key:
+            type: string
+            description: Full key, shown exactly once
+    EventType:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        example_payload:
+          type:
+          - object
+          - 'null'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    Consumer:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        uid:
+          type: string
+        name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    Endpoint:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        consumer_id:
+          type: string
+          format: uuid
+        url:
+          type: string
+        description:
+          type: string
+        event_types:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreatedEndpoint:
+      allOf:
+      - $ref: '#/components/schemas/Endpoint'
+      - type: object
+        properties:
+          secret:
+            type: string
+            description: Signing secret (whsec_...), shown only on create and rotate
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: A malformed or foreign id is a 404
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    Cursor:
+      name: cursor
+      in: query
+      schema:
+        type: string
+      description: Opaque; pass `meta.next_cursor` from the previous page
