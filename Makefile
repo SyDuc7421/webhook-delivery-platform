@@ -59,7 +59,7 @@ run:
 
 ## build: compile every binary under cmd/
 build:
-	$(IN_BE) CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-s -w -X main.version=$$(git describe --tags --always --dirty)" -o bin/ ./cmd/...
+	$(IN_BE) CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-s -w -X $(MODULE)/cmd/internal/boot.Version=$$(git describe --tags --always --dirty)" -o bin/ ./cmd/...
 
 ## fmt: format code
 fmt:

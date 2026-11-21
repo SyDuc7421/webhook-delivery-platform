@@ -37,7 +37,8 @@ services:
   api:
     <<: *app
     build: { context: ../backend, target: runtime, args: { APP: api } }
-    environment: { <<: *app-env, OTEL_SERVICE_NAME: api }
+    # Container always listens on 8080; API_PORT in .env only picks the host port.
+    environment: { <<: *app-env, OTEL_SERVICE_NAME: api, API_PORT: "8080" }
     ports: ["${API_PORT:-8080}:8080"]
     healthcheck:
       test: ["CMD", "/app", "healthcheck"]
@@ -156,11 +157,7 @@ services:
     volumes:
       - ./observability/loki-config.yaml:/etc/loki/loki-config.yaml:ro
       - lokidata:/loki
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3100/ready | grep -q ready"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
+    # No healthcheck: the Loki 3.x image has no shell or wget. Readiness: GET :3100/ready.
 
   tempo:
     <<: *common
@@ -185,7 +182,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - alloydata:/var/lib/alloy/data
     depends_on:
-      loki: { condition: service_healthy }
+      loki: { condition: service_started }
       tempo: { condition: service_started }
 
   prometheus:

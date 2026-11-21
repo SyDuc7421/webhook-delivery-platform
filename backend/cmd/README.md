@@ -1,2 +1,2 @@
-# Composition roots, one per process: api, relay, dispatcher, delivery-worker, retry-worker.
-# (Separate binaries or one binary with a role flag — decide in M0; see docs/architect.md §1.)
+# Composition roots, one binary per process (docs/architect.md §1):
+# api, relay, dispatcher, delivery-worker, retry-worker. Shared wiring: cmd/internal/boot.

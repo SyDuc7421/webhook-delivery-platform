@@ -34,12 +34,15 @@ limits_config:
   ingestion_burst_size_mb: 32
   max_query_series: 5000
   allow_structured_metadata: true
+  # Keep labels to service, container, level, env (docs/OBSERVABILITY.md): no auto-added
+  # service_name label and no detected_level metadata.
+  discover_service_name: []
+  discover_log_levels: false
 
 compactor:
   working_directory: /loki/compactor
   retention_enabled: true
   delete_request_store: filesystem
 
-query_range:
-  align_queries_with_step: true
-  cache_results: true
+analytics:
+  reporting_enabled: false
