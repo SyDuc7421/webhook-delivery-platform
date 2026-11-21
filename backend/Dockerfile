@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # One image per process: docker build --build-arg APP=relay .
-ARG GO_VERSION=1.27
+ARG GO_VERSION=1.27.4
 
 FROM golang:${GO_VERSION}-alpine AS build
 WORKDIR /src
