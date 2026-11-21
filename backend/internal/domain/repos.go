@@ -91,3 +91,9 @@ type OutboxRepository interface {
 	Delete(ctx context.Context, ids []int64) error
 	Backlog(ctx context.Context) (int64, error)
 }
+
+// RateLimiter limits ingest per org, with the counter shared by every api instance (FR-I5).
+// It is loss-tolerant: callers fail open when it returns an error (NFR-D1).
+type RateLimiter interface {
+	Allow(ctx context.Context, orgID uuid.UUID) (allowed bool, retryAfter time.Duration, err error)
+}

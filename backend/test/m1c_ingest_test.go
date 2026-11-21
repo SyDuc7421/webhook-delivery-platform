@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/cache/redis"
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/domain"
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/platform"
 	"github.com/SyDuc7421/webhook-delivery-platform/backend/internal/repository/postgres"
@@ -215,6 +216,92 @@ func TestEventAndOutboxRepositories(t *testing.T) {
 		n, err := outbox.Backlog(ctx)
 		if err != nil || n != 11 {
 			t.Errorf("backlog = %d, %v, want 11 (15 - 4)", n, err)
+		}
+	})
+}
+
+func TestRateLimiter(t *testing.T) {
+	env := testenv.Start(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	client := redis.NewClient(env.Config.Redis)
+	defer func() { _ = client.Close() }()
+	orgA, orgB := platform.NewID(), platform.NewID()
+
+	t.Run("allows up to the limit then denies with a retry hint", func(t *testing.T) {
+		rl := redis.NewRateLimiter(client, 3, time.Minute)
+		for i := range 3 {
+			ok, _, err := rl.Allow(ctx, orgA)
+			if err != nil || !ok {
+				t.Fatalf("request %d: allowed=%v err=%v", i+1, ok, err)
+			}
+		}
+		ok, retryAfter, err := rl.Allow(ctx, orgA)
+		if err != nil || ok {
+			t.Fatalf("4th request: allowed=%v err=%v, want denied", ok, err)
+		}
+		if retryAfter <= 0 || retryAfter > time.Minute {
+			t.Errorf("retryAfter = %v, want within (0, 1m]", retryAfter)
+		}
+		if ttl, err := client.PTTL(ctx, redis.OrgRateLimitKey(orgA.String())).Result(); err != nil || ttl <= 0 {
+			t.Errorf("every key needs a TTL: pttl = %v, err = %v", ttl, err)
+		}
+	})
+
+	t.Run("orgs are independent", func(t *testing.T) {
+		rl := redis.NewRateLimiter(client, 3, time.Minute)
+		if ok, _, err := rl.Allow(ctx, orgB); err != nil || !ok {
+			t.Errorf("org B allowed=%v err=%v", ok, err)
+		}
+	})
+
+	t.Run("the window resets", func(t *testing.T) {
+		rl := redis.NewRateLimiter(client, 1, 300*time.Millisecond)
+		org := platform.NewID()
+		if ok, _, _ := rl.Allow(ctx, org); !ok {
+			t.Fatal("first request must pass")
+		}
+		if ok, _, _ := rl.Allow(ctx, org); ok {
+			t.Fatal("second request in the window must be denied")
+		}
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			if ok, _, _ := rl.Allow(ctx, org); ok {
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		t.Error("window never reset")
+	})
+
+	t.Run("concurrent requests never exceed the limit", func(t *testing.T) {
+		rl := redis.NewRateLimiter(client, 10, time.Minute)
+		org := platform.NewID()
+		var allowed atomic.Int32
+		var wg sync.WaitGroup
+		for range 50 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if ok, _, err := rl.Allow(ctx, org); err == nil && ok {
+					allowed.Add(1)
+				}
+			}()
+		}
+		wg.Wait()
+		if allowed.Load() != 10 {
+			t.Errorf("allowed = %d, want exactly 10", allowed.Load())
+		}
+	})
+
+	t.Run("redis down is an error the caller can fail open on", func(t *testing.T) {
+		rl := redis.NewRateLimiter(client, 3, time.Minute)
+		timeout := 5 * time.Second
+		if err := env.Redis.Stop(ctx, &timeout); err != nil {
+			t.Fatalf("stop redis: %v", err)
+		}
+		if _, _, err := rl.Allow(ctx, orgA); !errors.Is(err, domain.ErrUnavailable) {
+			t.Errorf("err = %v, want ErrUnavailable", err)
 		}
 	})
 }
