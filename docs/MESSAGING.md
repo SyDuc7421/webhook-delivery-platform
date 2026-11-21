@@ -1,6 +1,6 @@
 # Kafka — delivery pipeline conventions
 
-The *design* (processes, flow, why) is in [architect.md §3](architect.md#3-from-outbox-to-delivery)
+The *design* (processes, flow, why) is in [ARCHITECT.md §3](ARCHITECT.md#3-from-outbox-to-delivery)
 and ADR-0002 / ADR-0003. This file is the *rules* every producer and consumer follows.
 
 ## Topics
@@ -9,7 +9,7 @@ Created by `kafka-init` in `deploy/docker-compose.yml` locally (`make topics`) a
 Terraform module on AWS. Auto-create is off: a topic that is not declared does not exist.
 Topic names live only in `internal/messaging/kafka/topics.go`.
 
-Topics, keys, producers and consumer groups: [architect.md §3](architect.md#kafka-topics).
+Topics, keys, producers and consumer groups: [ARCHITECT.md §3](ARCHITECT.md#kafka-topics).
 
 - The key decides ordering. `deliveries` is keyed by `endpoint_id` so first attempts to one
   endpoint stay ordered (FR-D5). Never change a key without an ADR.

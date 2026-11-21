@@ -11,9 +11,9 @@
 | Name | `webhook-platform` — Webhook Delivery Platform |
 | Layout | Monorepo: `/backend` (Go), `/web` (Next.js), `/infra` (Terraform), `/deploy`, `/loadtest`, `/docs` |
 | Go module | `github.com/SyDuc7421/webhook-delivery-platform/backend` |
-| Runtime | Go 1.26 · `net/http` + chi · `log/slog` |
-| Datastores | PostgreSQL 17 (source of truth, outbox) · Redis 7.4 (rate limits, refresh tokens, caches) |
-| Messaging | Apache Kafka 4.x (KRaft) — franz-go suggested |
+| Runtime | Go 1.27 · `net/http` + chi · `log/slog` |
+| Datastores | PostgreSQL 19 (source of truth, outbox) · Redis 8.10 (rate limits, refresh tokens, caches) |
+| Messaging | Apache Kafka 4.4 (KRaft) — franz-go |
 | Observability | OpenTelemetry · Prometheus · Loki · Tempo · Grafana (Alloy as collector) |
 | Local env | Docker Compose (`deploy/docker-compose.yml`) |
 | Cloud | AWS, ephemeral (Terraform apply/destroy), Free plan |
@@ -21,7 +21,7 @@
 A small Svix/Hookdeck: an org calls `POST /v1/events`; the platform delivers the event as a signed
 HTTP POST to every subscribed endpoint, retries failures through Kafka retry tiers, keeps
 first-attempt order per endpoint, records every attempt and supports replay. At-least-once,
-never exactly-once. Requirements: `docs/spec.md`. System design: `docs/architect.md`.
+never exactly-once. Requirements: `docs/SPEC.md`. System design: `docs/ARCHITECT.md`.
 
 ## 2. Golden rules (non-negotiable)
 
@@ -41,7 +41,7 @@ never exactly-once. Requirements: `docs/spec.md`. System design: `docs/architect
 9. **`context.Context` is the first parameter** of every function that does I/O.
 10. **Never lose an accepted event.** No Kafka produce inside the ingest request (outbox only);
     no offset commit before the attempt is recorded and the message forwarded.
-11. **Requirements have IDs.** Reference `FR-*` / `NFR-*` from `docs/spec.md` in tests, PRs and
+11. **Requirements have IDs.** Reference `FR-*` / `NFR-*` from `docs/SPEC.md` in tests, PRs and
     commits; update the status column when a requirement is met.
 12. **Ask, don't guess.** If the requirement is ambiguous, stop and ask one focused question.
 
@@ -138,16 +138,16 @@ Do **not** read all of these at once. Open only what the task needs.
 
 | Task | Read |
 | --- | --- |
-| What must the system do (FR/NFR) | `docs/spec.md` |
-| Processes, topics, tables, Redis keys, code layering | `docs/architect.md` |
-| Milestones, scope, what's next | `docs/roadmap.md` |
+| What must the system do (FR/NFR) | `docs/SPEC.md` |
+| Processes, topics, tables, Redis keys, code layering | `docs/ARCHITECT.md` |
+| Milestones, scope, what's next | `docs/ROADMAP.md` |
 | Adding/changing an endpoint | `docs/API.md`, `docs/CONVENTIONS.md` |
 | Schema, queries, transactions, partitions | `docs/DATABASE.md` |
 | Kafka topics, outbox, retries, DLQ, replay | `docs/MESSAGING.md` |
 | Rate limits, caches, refresh tokens | `docs/CACHING.md` |
 | Logs, metrics, traces, dashboards | `docs/OBSERVABILITY.md` |
 | Writing tests | `docs/TESTING.md` |
-| Local setup, ports, troubleshooting, AWS, Terraform, CI/CD | `docs/deploy.md` |
+| Local setup, ports, troubleshooting, AWS, Terraform, CI/CD | `docs/DEPLOY.md` |
 | Incident / demo-session problems | `docs/RUNBOOK.md` |
 | Big technical decision | `docs/adr/` + `docs/adr/0000-template.md` |
 | Why the project exists, design history | `docs/superpowers/specs/2026-11-18-webhook-platform-design.md` |

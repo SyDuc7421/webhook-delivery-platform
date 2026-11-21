@@ -18,7 +18,7 @@ What is tested at each level, what each level proves, and the rules every Go tes
 Coverage target: ≥80% on `service/` and `domain/`, ≥60% overall (CI gate). Coverage is a smell
 detector, not a goal — a covered line with no assertion is worthless.
 
-Kafka in integration tests is `confluentinc/confluent-local` (the testcontainers Kafka module only
+Kafka in integration tests is `confluentinc/confluent-local:8.4.1` (Kafka 4.x) (the testcontainers Kafka module only
 drives Confluent images); compose and AWS run `apache/kafka`. Both speak the same client protocol.
 
 ## Go rules
@@ -66,7 +66,7 @@ graceful shutdown finishes or hands back in-flight work.
 ## CI gates
 
 Every pull request runs Go unit + integration tests with `-race`, web unit tests and Playwright e2e.
-See [deploy.md](deploy.md#3-cicd-github-actions).
+See [DEPLOY.md](DEPLOY.md#3-cicd-github-actions).
 
 ## Load test results
 

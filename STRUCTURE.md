@@ -11,10 +11,10 @@ Started from the shared Go backend template; adapted to webhook-platform on 2026
 | `README.md` | Project pitch, quick start, links. |
 | `SECURITY.md` | Reporting + security baseline (SSRF, signing, secrets). |
 | `STRUCTURE.md` | This file. |
-| `docs/spec.md` | What the system must do: FR/NFR with IDs, status and milestone. |
-| `docs/architect.md` (+ `architect.html`, visual version) | System design: processes, Kafka topics, Postgres, Redis, security, observability, code layering. |
-| `docs/deploy.md` | Local setup (ports, tooling, troubleshooting), AWS (Terraform, Free plan), CI/CD. |
-| `docs/roadmap.md` | Milestones M0–M7, estimates, stretch backlog. |
+| `docs/SPEC.md` | What the system must do: FR/NFR with IDs, status and milestone. |
+| `docs/ARCHITECT.md` (+ `architect.html`, visual version) | System design: processes, Kafka topics, Postgres, Redis, security, observability, code layering. |
+| `docs/DEPLOY.md` | Local setup (ports, tooling, troubleshooting), AWS (Terraform, Free plan), CI/CD. |
+| `docs/ROADMAP.md` | Milestones M0–M7, estimates, stretch backlog. |
 | `docs/superpowers/specs/` | Design overview: why the project exists, goals, constraints, decision index. |
 | `docs/CONVENTIONS.md` | Go style: packages, errors, structs, concurrency, logging. |
 | `docs/API.md` | Surfaces, URLs, status codes, envelope, cursor pagination, chi handler skeleton. |

@@ -24,7 +24,7 @@ for logging, `github.com/go-playground/validator/v10` for DTO shape validation.
 
 ## Consequences
 
-- `architect.md` §7 and the design overview now say slog instead of zap.
+- `ARCHITECT.md` §7 and the design overview now say slog instead of zap.
 - Handlers take `(w http.ResponseWriter, r *http.Request)`; helpers live in `internal/http`.
 - The golangci `forbidigo` rule already bans `fmt.Print*` in favour of slog.
 

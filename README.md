@@ -7,7 +7,7 @@ keeps per-endpoint order, records every attempt and supports replay.
 Go (chi, slog) · PostgreSQL · Kafka · Redis · Next.js · OpenTelemetry + Grafana/Loki/Tempo/Prometheus ·
 Terraform on AWS (ephemeral) · Docker Compose.
 
-> Status: design done, building milestone M0. See [docs/roadmap.md](docs/roadmap.md).
+> Status: design done, building milestone M0. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Quick start
 
@@ -38,10 +38,10 @@ make setup && make up && make migrate-up && make run
 
 ## Documentation
 
-- [`docs/spec.md`](docs/spec.md) — what the system must do (FR/NFR with IDs)
-- [`docs/architect.md`](docs/architect.md) — processes, Kafka topics, Postgres, Redis, security
-- [`docs/deploy.md`](docs/deploy.md) — local, AWS, CI/CD
-- [`docs/roadmap.md`](docs/roadmap.md) — milestones
+- [`docs/SPEC.md`](docs/SPEC.md) — what the system must do (FR/NFR with IDs)
+- [`docs/ARCHITECT.md`](docs/ARCHITECT.md) — processes, Kafka topics, Postgres, Redis, security
+- [`docs/DEPLOY.md`](docs/DEPLOY.md) — local, AWS, CI/CD
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — milestones
 - [`docs/adr/`](docs/adr) — decisions and rejected options
 - [`AGENTS.md`](AGENTS.md) — conventions, commands, rules (humans read this too)
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — workflow, commits, PRs

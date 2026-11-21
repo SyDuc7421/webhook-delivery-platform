@@ -26,7 +26,7 @@ later message in that partition waits behind it, including messages for other, h
 Kafka retry topics. First attempts stay ordered per endpoint; retries are not ordered.
 
 Redis is kept for shared, loss-tolerant state only (rate limits, caches); see
-[architect.md §5](../architect.md#5-redis).
+[ARCHITECT.md §5](../ARCHITECT.md#5-redis).
 
 ## Consequences
 

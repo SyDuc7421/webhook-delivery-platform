@@ -1,6 +1,6 @@
 # Architecture — webhook-platform
 
-How the pieces fit together. For *what* the system must do, see [spec.md](spec.md).
+How the pieces fit together. For *what* the system must do, see [SPEC.md](SPEC.md).
 Decisions and their trade-offs are recorded in [adr/](adr/).
 
 ---
@@ -186,7 +186,7 @@ caches fall back to Postgres, refresh fails (users log in again). Delivery keeps
 ```
 /backend    Go module: cmd/*, internal/*, migrations
 /web        Next.js dashboard
-/infra      Terraform (see deploy.md)
+/infra      Terraform (see DEPLOY.md)
 /deploy     docker-compose.yml, observability/ (Grafana/Prometheus/Loki/Tempo/Alloy config)
 /loadtest   k6 scripts
 /docs       spec, architecture, deploy, testing, roadmap, conventions, ADRs, results

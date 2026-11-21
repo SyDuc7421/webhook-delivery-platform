@@ -1,10 +1,10 @@
 # System Specification — webhook-platform
 
 What the system must do. Each requirement is tagged with the milestone that delivers it
-(see [roadmap.md](roadmap.md)).
+(see [ROADMAP.md](ROADMAP.md)).
 
 - **Status legend:** ✅ met · ⚠️ partial · ❌ not met · 🗓️ planned (Mx)
-- Architecture: [architect.md](architect.md) · Deploy: [deploy.md](deploy.md) · Testing: [TESTING.md](TESTING.md)
+- Architecture: [ARCHITECT.md](ARCHITECT.md) · Deploy: [DEPLOY.md](DEPLOY.md) · Testing: [TESTING.md](TESTING.md)
 
 ---
 
@@ -177,4 +177,4 @@ No target numbers are set before the first measurement.
 Live event log (SSE), endpoint health charts, bulk replay, embeddable consumer portal with scoped
 tokens, RBAC beyond owner/member, per-endpoint circuit breaker and send rate limit (both shared
 across workers through Redis).
-See [roadmap.md](roadmap.md#stretch).
+See [ROADMAP.md](ROADMAP.md#stretch).

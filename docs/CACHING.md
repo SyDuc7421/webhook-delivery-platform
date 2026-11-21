@@ -4,11 +4,11 @@ Redis holds only state that is **shared between instances and safe to lose**. No
 delivery pipeline depends on Redis for durability: retries live in Kafka, delivery status lives
 in Postgres (ADR-0003). If flushing Redis breaks correctness, the design is wrong.
 
-What is stored and why: [architect.md §5](architect.md#5-redis). This file is the rules.
+What is stored and why: [ARCHITECT.md §5](ARCHITECT.md#5-redis). This file is the rules.
 
 ## Keys
 
-The key list (use, pattern, TTL, milestone) is in [architect.md §5](architect.md#5-redis).
+The key list (use, pattern, TTL, milestone) is in [ARCHITECT.md §5](ARCHITECT.md#5-redis).
 
 - Keys are constructed **only** by helpers in `internal/cache/redis/keys.go`. No inline strings.
 - A value format change = new key prefix (e.g. `ak2:`), not a migration.
